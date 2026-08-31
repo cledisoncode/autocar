@@ -108,7 +108,6 @@ async function atualizarTipoServico(req, res) {
     }
 }
 
-
 async function excluirTipoServico(req, res) {
     try {
         const { id } = req.params;
@@ -140,7 +139,6 @@ async function excluirTipoServico(req, res) {
         });
     }
 }
-
 
 module.exports = {
     listarTiposServico,

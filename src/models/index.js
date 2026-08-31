@@ -2,8 +2,10 @@ const Usuario = require('./Usuario');
 const Categoria = require('./Categoria');
 const TipoServico = require('./TipoServico');
 const Produto = require('./Produto');
+const CompraProduto = require('./CompraProduto');
 const MovimentacaoEstoque = require('./MovimentacaoEstoque');
 const Servico = require('./Servico');
+
 
 // CATEGORIA => PRODUTO
 //Um tipo de categoria pode ser utilizado em vários produtos,E cada produto possui uma categoria
@@ -18,7 +20,19 @@ Produto.belongsTo(Categoria, {
     as: 'categoria'
 });
 
-// PRODUTO → MOVIMENTAÇÕES
+
+// PRODUTO => COMPRAS/LOTES
+Produto.hasMany(CompraProduto, {
+    foreignKey: 'id_produto',
+    as: 'compras'
+});
+
+CompraProduto.belongsTo(Produto, {
+    foreignKey: 'id_produto',
+    as: 'produto'
+});
+
+// PRODUTO => MOVIMENTAÇÕES
 Produto.hasMany(MovimentacaoEstoque, {
     foreignKey: 'id_produto',
     as: 'movimentacoes'
@@ -29,7 +43,8 @@ MovimentacaoEstoque.belongsTo(Produto, {
     as: 'produto'
 });
 
-// USUÁRIO → MOVIMENTAÇÕES
+
+//USUÁRIO → MOVIMENTAÇÕES
 Usuario.hasMany(MovimentacaoEstoque, {
     foreignKey: 'id_usuario',
     as: 'movimentacoes'
@@ -40,7 +55,7 @@ MovimentacaoEstoque.belongsTo(Usuario, {
     as: 'usuario'
 });
 
-// USUÁRIO → SERVIÇOS
+// USUÁRIO => SERVIÇOS
 Usuario.hasMany(Servico, {
     foreignKey: 'id_usuario',
     as: 'servicos'
@@ -50,6 +65,7 @@ Servico.belongsTo(Usuario, {
     foreignKey: 'id_usuario',
     as: 'usuario'
 });
+
 
 // TIPO DE SERVIÇO = > SERVIÇO
 TipoServico.hasMany(Servico, {
@@ -62,12 +78,12 @@ Servico.belongsTo(TipoServico, {
     as: 'tipoServico'
 });
 
-
 module.exports = {
     Usuario,
     Categoria,
     TipoServico,
     Produto,
+    CompraProduto,
     MovimentacaoEstoque,
     Servico
 };

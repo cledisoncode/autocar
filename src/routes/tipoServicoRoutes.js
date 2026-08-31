@@ -1,8 +1,6 @@
 const express = require('express');
 const router = express.Router();
 
-const autenticarToken = require('../middlewares/authMiddleware');
-
 const {
     listarTiposServico,
     buscarTipoServico,
@@ -11,34 +9,10 @@ const {
     excluirTipoServico
 } = require('../controllers/tipoServicoController')
 
-router.get(
-    '/', 
-    autenticarToken, 
-    listarTiposServico
-);
-
-router.get(
-    '/:id', 
-    autenticarToken, 
-    buscarTipoServico
-);
-
-router.post(
-    '/', 
-    autenticarToken, 
-    criarTipoServico
-);
-
-router.put(
-    '/:id', 
-    autenticarToken, 
-    atualizarTipoServico
-);
-
-router.delete(
-    '/:id',
-    autenticarToken,
-    excluirTipoServico
-);
+router.get('/', listarTiposServico);
+router.get('/:id', buscarTipoServico);
+router.post('/', criarTipoServico);
+router.put('/:id', atualizarTipoServico);
+router.delete('/:id', excluirTipoServico);
 
 module.exports = router;

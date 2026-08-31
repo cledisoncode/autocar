@@ -6,18 +6,17 @@ const {
     MovimentacaoEstoque
 } = require('../models');
 
-async function criarMovimentacao(req,res) {
+async function criarMovimentacao(req, res) {
     const transaction = await sequelize.transaction();
 
     try {
         let {
             id_produto,
+            id_usuario,
             tipo,
             quantidade,
             observacao
         } = req.body;
-
-        let id_usuario = req.usuario.id_usuario
         
         // TRATAMENTO 
         id_produto = Number(id_produto);
@@ -60,7 +59,7 @@ async function criarMovimentacao(req,res) {
             });
         }
 
-        // VERIFICAR PRODUTO
+        // VERIFICA PRODUTO
         const produto = await Produto.findByPk(id_produto, {
             transaction,
             lock: transaction.LOCK.UPDATE
@@ -74,7 +73,7 @@ async function criarMovimentacao(req,res) {
             });
         }
 
-        // VERIFICAR USUÁRIO
+        // VERIFICA USUÁRIO
         const usuario = await Usuario.findByPk(id_usuario, {
             transaction
         });
@@ -90,7 +89,7 @@ async function criarMovimentacao(req,res) {
         // CALCULAR ESTOQUE ATUAL
         const estoqueAtual = await calcularEstoque(id_produto,transaction);
 
-        // VALIDAR SAÍDA
+        // VALIDA SAÍDA
         if (tipo === 'SAIDA' && quantidade > estoqueAtual) {
             await transaction.rollback();
 
@@ -100,7 +99,6 @@ async function criarMovimentacao(req,res) {
             });
         }
 
-        // CRIAR MOVIMENTAÇÃO
         const movimentacao = await MovimentacaoEstoque.create({
             id_produto,
             id_usuario,
@@ -111,7 +109,7 @@ async function criarMovimentacao(req,res) {
             transaction
         });
 
-        // NOVO ESTOQUE
+        
         const novoEstoque =
             tipo === 'ENTRADA'
                 ? estoqueAtual + quantidade

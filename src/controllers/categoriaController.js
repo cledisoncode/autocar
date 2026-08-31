@@ -141,11 +141,10 @@ async function excluirCategoria(req, res) {
     }
 }
 
-
 module.exports = {
     listarCategorias,
     buscarCategoria,
     criarCategoria,
     atualizarCategoria,
-    excluirCategoria,
+    excluirCategoria
 };

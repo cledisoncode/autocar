@@ -47,6 +47,12 @@ const Produto = sequelize.define('Produto', {
     data_vencimento: {
         type: DataTypes.DATEONLY,
         allowNull: true
+    },
+
+    removido: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
     }
 }, {
     tableName: 'produtos',

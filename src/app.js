@@ -1,30 +1,30 @@
 const express                   = require('express');
+const cors                      = require('cors');
 const path                      = require('path');
 
-const categoriaRoutes           = require('./routes/categoriaRoutes');
-const estoqueRoutes             = require('./routes/estoqueRoutes');
-const movimentacaoEstoqueRoutes = require('./routes/movimentacaoEstoqueRoutes');
-const produtoRoutes             = require('./routes/produtoRoutes');
-const servicoRoutes             = require('./routes/servicoRoutes');
+const categoriaRoutes           = require('./routes/categoriaRoutes')
 const tipoServicoRoutes         = require('./routes/tipoServicoRoutes');
-const usuarioRoutes             = require('./routes/usuarioRoutes');
-
+const produtoRoutes             = require('./routes/produtoRoutes');
+const movimentacaoEstoqueRoutes = require('./routes/movimentacaoEstoqueRoutes');
+const estoqueRoutes = require('./routes/estoqueRoutes');
+const atendimentoRoutes = require('./routes/atendimentoRoutes');
+const authRoutes = require('./routes/authRoutes');
+const relatorioRoutes = require('./routes/relatorioRoutes');
 
 const app = express();
 
+app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({extended: true}))
 app.use('/uploads',express.static(path.join(__dirname, '../uploads')))
 
 app.use('/api/categorias', categoriaRoutes);
-app.use('/api/estoque', estoqueRoutes);
-app.use('/api/movimentacoes',movimentacaoEstoqueRoutes);
-app.use('/api/produtos', produtoRoutes);
-app.use('/api/servicos', servicoRoutes);
 app.use('/api/tipos-servico', tipoServicoRoutes);
-app.use('/api/usuarios', usuarioRoutes);
-
-
+app.use('/api/produtos', produtoRoutes);
+app.use('/api/movimentacoes',movimentacaoEstoqueRoutes);
+app.use('/api/estoque', estoqueRoutes);
+app.use('/api/atendimentos', atendimentoRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/relatorios', relatorioRoutes);
 
 
 module.exports = app;

@@ -2,47 +2,26 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../middlewares/upload');
 
-const autenticarToken = require('../middlewares/authMiddleware');
-
 const {
+    criarCompraProduto,
+    listarProdutosComCompras,
     listarProdutos,
     buscarProduto,
     criarProduto,
     atualizarProduto,
-    excluirProduto
+    excluirProduto,
+    excluirCompraProduto
 } = require('../controllers/produtoController');
 
 
-router.get(
-    '/', 
-    autenticarToken, 
-    listarProdutos
-);
 
-router.get(
-    '/:id',  
-    autenticarToken, 
-    buscarProduto
-);
-
-router.post(
-    '/', 
-    autenticarToken, 
-    upload.single('imagem'), 
-    criarProduto
-);
-
-router.put(
-    '/:id', 
-    autenticarToken, 
-    upload.single('imagem'), 
-    atualizarProduto
-);
-
-router.delete(
-    '/:id', 
-    autenticarToken, 
-    excluirProduto
-);
+router.post('/compras', upload.single('foto'), criarCompraProduto);
+router.get('/compras', listarProdutosComCompras);
+router.get('/', listarProdutos);
+router.get('/:id', buscarProduto);
+router.post('/', upload.single('imagem'), criarProduto);
+router.put('/:id', upload.single('imagem'), atualizarProduto);
+router.delete('/:id/compras/:idCompra', excluirCompraProduto);
+router.delete('/:id', excluirProduto);
 
 module.exports = router;
