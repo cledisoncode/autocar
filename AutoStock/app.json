@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "AUTOCAR",
+    "slug": "autocar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/logo-autocar.png",
+    "scheme": "autocar",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
+    "primaryColor": "#E53935",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "com.pedro215.autocar"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/logo-autocar.png",
+      "backgroundColor": "#000000"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-navigation-bar",
+        {
+          "backgroundColor": "#000000",
+          "barStyle": "light",
+          "borderColor": "#000000"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/logo-autocar.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000",
+          "dark": {
+            "image": "./assets/images/logo-autocar.png",
+            "backgroundColor": "#000000"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "expo-navigation-bar": {
+        "backgroundColor": "#000000",
+        "barStyle": "light",
+        "borderColor": "#000000"
+      },
+      "eas": {
+        "projectId": "31de5f31-d1a5-49bb-8478-0ffd090b7e54"
+      }
+    }
+  }
+}
