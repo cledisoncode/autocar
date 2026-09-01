@@ -1,0 +1,5 @@
+node_modules/
+.env
+uploads/img_produtos/*
+!uploads/img_produtos/.gitkeep
+>>>>>>> 40b2427 (Adicionando backend da aplicação v1.0)
