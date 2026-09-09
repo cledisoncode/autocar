@@ -576,7 +576,7 @@ export default function AtendimentoScreen() {
     setValor('');
   }
 
-  function salvarAtendimento() {
+  async function salvarAtendimento() {
     Keyboard.dismiss();
 
     const valorNumero =
@@ -658,9 +658,20 @@ export default function AtendimentoScreen() {
         valorNumero,
     };
 
-    adicionarAtendimento(
-      novoAtendimento
-    );
+    try {
+      await adicionarAtendimento(
+        novoAtendimento
+      );
+    } catch (erro) {
+      Alert.alert(
+        'Não foi possível adicionar',
+        erro instanceof Error
+          ? erro.message
+          : 'Verifique a conexão com o servidor.'
+      );
+
+      return;
+    }
 
     limparFormulario();
 

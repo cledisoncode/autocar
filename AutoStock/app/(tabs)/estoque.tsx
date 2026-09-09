@@ -659,7 +659,7 @@ export default function EstoqueScreen() {
     );
   }
 
-  function salvarProduto() {
+  async function salvarProduto() {
     Keyboard.dismiss();
 
     const valorNumero =
@@ -779,20 +779,31 @@ export default function EstoqueScreen() {
       }
     }
 
-    adicionarCompraProduto({
-      nome,
-      categoria,
-      foto,
-      quantidade:
-        quantidadeNumero,
-      valor:
-        valorNumero,
-      dataCompra,
-      dataVencimento:
-        semVencimento
-          ? null
-          : dataVencimento,
-    });
+    try {
+      await adicionarCompraProduto({
+        nome,
+        categoria,
+        foto,
+        quantidade:
+          quantidadeNumero,
+        valor:
+          valorNumero,
+        dataCompra,
+        dataVencimento:
+          semVencimento
+            ? null
+            : dataVencimento,
+      });
+    } catch (erro) {
+      Alert.alert(
+        'Não foi possível cadastrar',
+        erro instanceof Error
+          ? erro.message
+          : 'Verifique a conexão com o servidor.'
+      );
+
+      return;
+    }
 
     limparFormulario();
 
@@ -1078,7 +1089,7 @@ export default function EstoqueScreen() {
     );
   }
 
-  function confirmarExclusao() {
+  async function confirmarExclusao() {
     if (
       !produtoParaExcluir
     ) {
@@ -1089,9 +1100,20 @@ export default function EstoqueScreen() {
       modoExclusao ===
       'produto'
     ) {
-      excluirProdutoDoEstoque(
-        produtoParaExcluir.id
-      );
+      try {
+        await excluirProdutoDoEstoque(
+          produtoParaExcluir.id
+        );
+      } catch (erro) {
+        Alert.alert(
+          'Não foi possível excluir',
+          erro instanceof Error
+            ? erro.message
+            : 'Verifique a conexão com o servidor.'
+        );
+
+        return;
+      }
 
       fecharModalExcluir();
 
@@ -1109,10 +1131,21 @@ export default function EstoqueScreen() {
       compraSelecionadaId !==
         null
     ) {
-      excluirCompraDoEstoque(
-        produtoParaExcluir.id,
-        compraSelecionadaId
-      );
+      try {
+        await excluirCompraDoEstoque(
+          produtoParaExcluir.id,
+          compraSelecionadaId
+        );
+      } catch (erro) {
+        Alert.alert(
+          'Não foi possível excluir',
+          erro instanceof Error
+            ? erro.message
+            : 'Verifique a conexão com o servidor.'
+        );
+
+        return;
+      }
 
       fecharModalExcluir();
 
