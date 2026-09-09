@@ -2,8 +2,21 @@ import {
   createContext,
   ReactNode,
   useContext,
+  useEffect,
   useState,
 } from 'react';
+
+import {
+  cadastrarAtendimentoApi,
+  cadastrarProdutoApi,
+  cadastrarUsuarioApi,
+  entrarUsuarioApi,
+  excluirCompraApi,
+  excluirProdutoApi,
+  listarAtendimentosApi,
+  listarProdutosApi,
+  removerToken,
+} from '@/services/api';
 
 export type Atendimento = {
   id: number;
@@ -63,11 +76,6 @@ export type Usuario = {
   email: string;
 };
 
-type UsuarioInterno =
-  Usuario & {
-    senha: string;
-  };
-
 type NovaCompraProduto = {
   nome: string;
   categoria: CategoriaProduto;
@@ -99,20 +107,20 @@ type AppDataContextType = {
 
   adicionarAtendimento: (
     atendimento: Atendimento
-  ) => void;
+  ) => Promise<void>;
 
   adicionarCompraProduto: (
     dados: NovaCompraProduto
-  ) => void;
+  ) => Promise<void>;
 
   excluirProdutoDoEstoque: (
     produtoId: number
-  ) => void;
+  ) => Promise<void>;
 
   excluirCompraDoEstoque: (
     produtoId: number,
     compraId: number
-  ) => void;
+  ) => Promise<void>;
 
   usuarioCadastrado:
     Usuario | null;
@@ -122,12 +130,12 @@ type AppDataContextType = {
 
   cadastrarUsuario: (
     dados: NovoUsuario
-  ) => boolean;
+  ) => Promise<boolean>;
 
   entrarUsuario: (
     email: string,
     senha: string
-  ) => boolean;
+  ) => Promise<boolean>;
 
   sairUsuario: () => void;
 
@@ -158,19 +166,11 @@ export function AppDataProvider({
   ] =
     useState<Produto[]>([]);
 
-  /*
-    Por enquanto, a conta fica
-    apenas na memória.
-
-    Quando implementarmos SQLite,
-    esses dados passarão para
-    o banco de dados.
-  */
   const [
-    usuarioInterno,
-    setUsuarioInterno,
+    usuarioCadastrado,
+    setUsuarioCadastrado,
   ] =
-    useState<UsuarioInterno | null>(
+    useState<Usuario | null>(
       null
     );
 
@@ -182,46 +182,91 @@ export function AppDataProvider({
       null
     );
 
-  const usuarioCadastrado:
-    Usuario | null =
-    usuarioInterno
-      ? {
-          id:
-            usuarioInterno.id,
+  async function carregarAtendimentos() {
+    const resposta =
+      await listarAtendimentosApi();
 
-          nome:
-            usuarioInterno.nome,
-
-          sobrenome:
-            usuarioInterno.sobrenome,
-
-          email:
-            usuarioInterno.email,
-        }
-      : null;
-
-  function adicionarAtendimento(
-    atendimento: Atendimento
-  ) {
     setAtendimentos(
-      (listaAtual) => [
-        atendimento,
-        ...listaAtual,
-      ]
+      resposta as Atendimento[]
     );
   }
 
-  function adicionarCompraProduto(
+  async function adicionarAtendimento(
+    atendimento: Atendimento
+  ) {
+    await cadastrarAtendimentoApi({
+      nome:
+        atendimento.nome.trim(),
+
+      carro:
+        atendimento.carro.trim(),
+
+      placa:
+        atendimento.placa
+          .trim()
+          .toUpperCase(),
+
+      servico:
+        atendimento.servico.trim(),
+
+      data:
+        atendimento.data,
+
+      horario:
+        atendimento.horario,
+
+      valor:
+        atendimento.valor,
+    });
+
+    await carregarAtendimentos();
+  }
+
+  async function carregarProdutos() {
+    const resposta =
+      await listarProdutosApi();
+
+    setProdutos(
+      resposta as Produto[]
+    );
+  }
+
+  useEffect(() => {
+    if (!usuarioLogado) {
+      return;
+    }
+
+    carregarProdutos().catch(
+      (erro) => {
+        console.error(
+          'Erro ao carregar produtos:',
+          erro
+        );
+      }
+    );
+
+    carregarAtendimentos().catch(
+      (erro) => {
+        console.error(
+          'Erro ao carregar atendimentos:',
+          erro
+        );
+      }
+    );
+  }, [usuarioLogado]);
+
+  async function adicionarCompraProduto(
     dados: NovaCompraProduto
   ) {
-    const nomeNormalizado =
-      dados.nome
-        .trim()
-        .toLowerCase();
+    await cadastrarProdutoApi({
+      nome:
+        dados.nome.trim(),
 
-    const novaCompra:
-      CompraProduto = {
-      id: Date.now(),
+      categoria:
+        dados.categoria,
+
+      foto:
+        dados.foto,
 
       quantidade:
         dados.quantidade,
@@ -234,102 +279,9 @@ export function AppDataProvider({
 
       dataVencimento:
         dados.dataVencimento,
+    });
 
-      removida: false,
-    };
-
-    setProdutos(
-      (listaAtual) => {
-        /*
-          Procuramos somente um produto
-          que ainda esteja no estoque.
-
-          Produto removido nunca será
-          reativado automaticamente.
-        */
-        const produtoExistente =
-          listaAtual.find(
-            (produto) =>
-              produto.removido !==
-                true &&
-              produto.nome
-                .trim()
-                .toLowerCase() ===
-                nomeNormalizado &&
-              produto.categoria ===
-                dados.categoria
-          );
-
-        /*
-          Não existe produto atual
-          com esse nome + categoria.
-
-          Criamos um NOVO produto.
-        */
-        if (!produtoExistente) {
-          const novoProduto:
-            Produto = {
-            id:
-              Date.now() +
-              Math.floor(
-                Math.random() *
-                  1000
-              ),
-
-            nome:
-              dados.nome.trim(),
-
-            categoria:
-              dados.categoria,
-
-            foto:
-              dados.foto,
-
-            compras: [
-              novaCompra,
-            ],
-
-            removido: false,
-          };
-
-          return [
-            novoProduto,
-            ...listaAtual,
-          ];
-        }
-
-        /*
-          Já existe um produto atual
-          com mesmo nome + categoria.
-
-          Registramos uma nova compra
-          dentro dele.
-        */
-        return listaAtual.map(
-          (produto) => {
-            if (
-              produto.id !==
-              produtoExistente.id
-            ) {
-              return produto;
-            }
-
-            return {
-              ...produto,
-
-              foto:
-                produto.foto ||
-                dados.foto,
-
-              compras: [
-                novaCompra,
-                ...produto.compras,
-              ],
-            };
-          }
-        );
-      }
-    );
+    await carregarProdutos();
   }
 
   /*
@@ -342,28 +294,14 @@ export function AppDataProvider({
     guardadas para Financeiro e
     Relatórios.
   */
-  function excluirProdutoDoEstoque(
+  async function excluirProdutoDoEstoque(
     produtoId: number
   ) {
-    setProdutos(
-      (listaAtual) =>
-        listaAtual.map(
-          (produto) => {
-            if (
-              produto.id !==
-              produtoId
-            ) {
-              return produto;
-            }
-
-            return {
-              ...produto,
-
-              removido: true,
-            };
-          }
-        )
+    await excluirProdutoApi(
+      produtoId
     );
+
+    await carregarProdutos();
   }
 
   /*
@@ -378,155 +316,94 @@ export function AppDataProvider({
     o produto também deixa de
     aparecer no estoque.
   */
-  function excluirCompraDoEstoque(
+  async function excluirCompraDoEstoque(
     produtoId: number,
     compraId: number
   ) {
-    setProdutos(
-      (listaAtual) =>
-        listaAtual.map(
-          (produto) => {
-            if (
-              produto.id !==
-              produtoId
-            ) {
-              return produto;
-            }
-
-            const comprasAtualizadas =
-              produto.compras.map(
-                (compra) => {
-                  if (
-                    compra.id !==
-                    compraId
-                  ) {
-                    return compra;
-                  }
-
-                  return {
-                    ...compra,
-
-                    removida:
-                      true,
-                  };
-                }
-              );
-
-            const possuiCompraVisivel =
-              comprasAtualizadas.some(
-                (compra) =>
-                  compra.removida !==
-                  true
-              );
-
-            return {
-              ...produto,
-
-              compras:
-                comprasAtualizadas,
-
-              removido:
-                !possuiCompraVisivel,
-            };
-          }
-        )
+    await excluirCompraApi(
+      produtoId,
+      compraId
     );
+
+    await carregarProdutos();
   }
 
-  function cadastrarUsuario(
+  async function cadastrarUsuario(
     dados: NovoUsuario
   ) {
-    /*
-      AUTOCAR terá apenas
-      uma conta administrativa.
-    */
-    if (usuarioInterno) {
-      return false;
-    }
+    const resposta =
+      await cadastrarUsuarioApi({
+        nome:
+          dados.nome.trim(),
 
-    const novoUsuario:
-      UsuarioInterno = {
-      id: Date.now(),
+        sobrenome:
+          dados.sobrenome.trim(),
 
-      nome:
-        dados.nome.trim(),
+        email:
+          dados.email
+            .trim()
+            .toLowerCase(),
 
-      sobrenome:
-        dados.sobrenome.trim(),
+        senha:
+          dados.senha,
+      });
 
-      email:
-        dados.email
-          .trim()
-          .toLowerCase(),
-
-      senha:
-        dados.senha,
-    };
-
-    setUsuarioInterno(
-      novoUsuario
+    setUsuarioCadastrado(
+      resposta.usuario
     );
+
+    /*
+      Depois do cadastro, o aplicativo
+      volta ao login. Por isso o token
+      recebido no cadastro é removido.
+    */
+    removerToken();
 
     return true;
   }
 
-  function entrarUsuario(
+  async function entrarUsuario(
     email: string,
     senha: string
   ) {
-    if (!usuarioInterno) {
-      return false;
-    }
+    const resposta =
+      await entrarUsuarioApi(
+        email
+          .trim()
+          .toLowerCase(),
+        senha
+      );
 
-    const emailNormalizado =
-      email
-        .trim()
-        .toLowerCase();
+    setUsuarioCadastrado(
+      resposta.usuario
+    );
 
-    const dadosCorretos =
-      usuarioInterno.email ===
-        emailNormalizado &&
-      usuarioInterno.senha ===
-        senha;
-
-    if (!dadosCorretos) {
-      return false;
-    }
-
-    setUsuarioLogado({
-      id:
-        usuarioInterno.id,
-
-      nome:
-        usuarioInterno.nome,
-
-      sobrenome:
-        usuarioInterno.sobrenome,
-
-      email:
-        usuarioInterno.email,
-    });
+    setUsuarioLogado(
+      resposta.usuario
+    );
 
     return true;
   }
 
   function sairUsuario() {
-    /*
-      Faz logout, mas não
-      exclui a conta.
-    */
+    removerToken();
+
     setUsuarioLogado(null);
+
+    setProdutos([]);
+
+    setAtendimentos([]);
   }
 
   function emailPertenceAoUsuario(
     email: string
   ) {
-    if (!usuarioInterno) {
+    if (!usuarioCadastrado) {
       return false;
     }
 
     return (
-      usuarioInterno.email ===
+      usuarioCadastrado.email ===
       email
         .trim()
         .toLowerCase()

@@ -147,7 +147,7 @@ export default function CadastroScreen() {
     }, 180);
   }
 
-  function cadastrar() {
+  async function cadastrar() {
     if (
       !nome.trim() ||
       !sobrenome.trim() ||
@@ -235,13 +235,29 @@ export default function CadastroScreen() {
     cadastroConcluidoRef.current =
       true;
 
-    const cadastrado =
-      cadastrarUsuario({
-        nome,
-        sobrenome,
-        email,
-        senha,
-      });
+    let cadastrado = false;
+
+    try {
+      cadastrado =
+        await cadastrarUsuario({
+          nome,
+          sobrenome,
+          email,
+          senha,
+        });
+    } catch (erro) {
+      cadastroConcluidoRef.current =
+        false;
+
+      Alert.alert(
+        'Não foi possível cadastrar',
+        erro instanceof Error
+          ? erro.message
+          : 'Verifique a conexão e tente novamente.'
+      );
+
+      return;
+    }
 
     if (!cadastrado) {
       cadastroConcluidoRef.current =

@@ -30,6 +30,8 @@ import {
   useAppData,
 } from '@/contexts/app-data-context';
 
+
+
 export default function LoginScreen() {
   const [
     email,
@@ -99,7 +101,7 @@ export default function LoginScreen() {
     };
   }, []);
 
-  function entrar() {
+  async function entrar() {
     Keyboard.dismiss();
 
     if (
@@ -142,11 +144,15 @@ export default function LoginScreen() {
       return;
     }
 
-    if (
-      !usuarioCadastrado
-    ) {
-      setEmail('');
+    let loginCorreto = false;
 
+    try {
+      loginCorreto =
+        await entrarUsuario(
+          email,
+          senha
+        );
+    } catch (erro) {
       setSenha('');
 
       setMostrarSenha(
@@ -154,18 +160,28 @@ export default function LoginScreen() {
       );
 
       Alert.alert(
-        'Primeiro acesso',
-        'Nenhuma conta foi cadastrada ainda. Toque em Criar conta.'
+        'Falha no login',
+        erro instanceof Error
+          ? erro.message
+          : 'Não foi possível entrar. Tente novamente.',
+        [
+          {
+            text: 'OK',
+
+            onPress: () => {
+              setTimeout(
+                () => {
+                  senhaRef.current?.focus();
+                },
+                150
+              );
+            },
+          },
+        ]
       );
 
       return;
     }
-
-    const loginCorreto =
-      entrarUsuario(
-        email,
-        senha
-      );
 
     if (
       !loginCorreto
