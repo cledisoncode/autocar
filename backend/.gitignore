@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.log
+coverage/
+uploads/img_produtos/*
+!uploads/img_produtos/.gitkeep

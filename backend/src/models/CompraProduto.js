@@ -2,11 +2,8 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
 
 /*
- * Cada registro representa uma compra/lote de um produto.
- *
- * O valor é o valor total da compra, pois é esse o valor usado pelo
- * financeiro do aplicativo. Uma compra removida continua registrada
- * para preservar o histórico financeiro e os relatórios.
+ * Cada registro representa uma compra de produto. O valor é o total pago.
+ * A remoção é lógica para preservar o histórico e o relatório financeiro.
  */
 const CompraProduto = sequelize.define('CompraProduto', {
     id_compra_produto: {
@@ -25,6 +22,14 @@ const CompraProduto = sequelize.define('CompraProduto', {
         allowNull: false,
         validate: {
             min: 0.001
+        }
+    },
+
+    quantidade_disponivel: {
+        type: DataTypes.DECIMAL(10, 3),
+        allowNull: true,
+        validate: {
+            min: 0
         }
     },
 

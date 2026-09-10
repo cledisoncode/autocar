@@ -45,6 +45,12 @@ async function cadastrar(req, res) {
             });
         }
 
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                erro: 'Configuração de segurança do servidor ausente.'
+            });
+        }
+
         if (!emailValido(email)) {
             return res.status(400).json({ erro: 'E-mail inválido.' });
         }
@@ -74,6 +80,7 @@ async function cadastrar(req, res) {
 
         return res.status(201).json({
             mensagem: 'Conta administrativa criada com sucesso.',
+            token: criarToken(usuario),
             usuario: respostaUsuario(usuario)
         });
     } catch (error) {
@@ -128,7 +135,34 @@ async function login(req, res) {
     }
 }
 
+async function verificarEmail(req, res) {
+    const email = req.body.email?.trim().toLowerCase();
+
+    if (!email || !emailValido(email)) {
+        return res.status(400).json({ erro: 'E-mail inválido.' });
+    }
+
+    const existe = Boolean(await Usuario.findOne({
+        where: { email },
+        attributes: ['id_usuario']
+    }));
+
+    return res.status(200).json({ existe });
+}
+
+async function perfil(req, res) {
+    const usuario = await Usuario.findByPk(req.usuario.idUsuario);
+
+    if (!usuario) {
+        return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    }
+
+    return res.status(200).json({ usuario: respostaUsuario(usuario) });
+}
+
 module.exports = {
     cadastrar,
-    login
+    login,
+    perfil,
+    verificarEmail
 };

@@ -1,51 +1,29 @@
 require('dotenv').config();
 
 const sequelize = require('./config/db');
+const models = require('./models');
 
-const {
-    Usuario,
-    Categoria,
-    TipoServico,
-    Produto,
-    MovimentacaoEstoque,
-    Servico
-} = require('./models')
-
-async function testarModels(){
-    try{
-        console.log('Testando conexao')
-
+async function testarModels() {
+    try {
         await sequelize.authenticate();
-
-        console.log('Conexao com BD funcionando!')
-
-        console.log('\nTestando Models')
-        console.log('Usuario', Usuario.name);
-        console.log('Categoria',Categoria.name);
-        console.log('TipoServico', TipoServico.name);
-        console.log('Produto', Produto.name);
-        console.log('MovimentacaoEstoque', MovimentacaoEstoque.name);
-        console.log('Servico', Servico.name);
-
-        console.log('Testando consulta de categorias');
-
-        const categorias = await Categoria.findAll({
-            include: {
-                model: Produto,
-                as: 'produtos'
-            }
-        });
-        console.log('Categorias encontradas:')
-        console.dir(categorias.map(categoria => categoria.toJSON()),
-            {depth: null}
-        )
-
-    } catch (err){
-        console.error('Erro durante o teste:');
-        console.error(err);
-    } finally{
+        console.log('Conexão com o PostgreSQL funcionando.');
+        console.log('Models carregados:', Object.keys(models).join(', '));
+        await Promise.all([
+            models.Usuario.count(),
+            models.Categoria.count(),
+            models.TipoServico.count(),
+            models.Produto.count(),
+            models.CompraProduto.count(),
+            models.MovimentacaoEstoque.count(),
+            models.Servico.count()
+        ]);
+        console.log('Consultas básicas executadas com sucesso.');
+    } catch (error) {
+        console.error('Falha no teste dos models:', error.message);
+        process.exitCode = 1;
+    } finally {
         await sequelize.close();
     }
 }
 
-testarModels()
+testarModels();

@@ -129,7 +129,7 @@ async function excluirCategoria(req, res) {
     } catch (error) {
         console.error('Erro ao excluir categoria:', error);
 
-        if(error.name === 'SequelizeDatabaseError'){
+        if (error.name === 'SequelizeForeignKeyConstraintError') {
             return res.status(409).json({
                 erro: 'Não é possível excluir esta categoria porque existem produtos associados a ela.'
             })

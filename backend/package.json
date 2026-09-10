@@ -1,4 +1,16 @@
 {
+  "name": "autocar-backend",
+  "version": "1.1.1",
+  "private": true,
+  "description": "API do aplicativo AUTOCAR",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node --test",
+    "check": "node scripts/checkSyntax.js",
+    "test:models": "node src/testModels.js"
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",

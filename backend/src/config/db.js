@@ -8,7 +8,8 @@ const sequelize = new Sequelize(
         host: process.env.DB_HOST,
         port: process.env.DB_PORT,
         dialect: 'postgres',
-        logging: false
+        logging: process.env.DB_LOGGING === 'true' ? console.log : false,
+        timezone: process.env.APP_UTC_OFFSET || '-03:00'
     }
 );
 

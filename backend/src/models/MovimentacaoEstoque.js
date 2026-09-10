@@ -19,14 +19,22 @@ const MovimentacaoEstoque = sequelize.define('MovimentacaoEstoque', {
         allowNull: false
     },
 
+    id_compra_produto: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
+
     tipo: {
         type: DataTypes.STRING(10),
         allowNull: false
     },
 
     quantidade: {
-        type: DataTypes.INTEGER,
-        allowNull: false
+        type: DataTypes.DECIMAL(10, 3),
+        allowNull: false,
+        validate: {
+            min: 0.001
+        }
     },
 
     data_movimentacao: {
