@@ -1,135 +1,98 @@
-const { Op } = require('sequelize');
-const sequelize = require('../config/db');
-const { Produto, Categoria, CompraProduto } = require('../models');
 const fs = require('fs');
 const path = require('path');
+const { Op } = require('sequelize');
+const sequelize = require('../config/db');
+const {
+    Categoria,
+    CompraProduto,
+    MovimentacaoEstoque,
+    Produto
+} = require('../models');
+const { formatarDataParaApp, normalizarData } = require('../utils/dateUtils');
+const { quantidadeDisponivel } = require('../services/stockMath');
+
+function numeroDecimal(valor) {
+    return Number(String(valor).replace(',', '.'));
+}
+
+function erroHttp(status, mensagem) {
+    const error = new Error(mensagem);
+    error.status = status;
+    return error;
+}
+
+function caminhoFisicoImagem(caminhoImagem) {
+    if (!caminhoImagem || !String(caminhoImagem).startsWith('/uploads/')) {
+        return null;
+    }
+
+    return path.join(__dirname, '../..', String(caminhoImagem).replace(/^\//, ''));
+}
 
 function excluirImagem(caminhoImagem) {
-    if (!caminhoImagem) {
-        return;
-    }
-
-    const caminhoArquivo = path.join(
-        __dirname,
-        '../..',
-        caminhoImagem
-    );
-
-    if (fs.existsSync(caminhoArquivo)) {
-        fs.unlinkSync(caminhoArquivo);
-    }
+    const caminho = caminhoFisicoImagem(caminhoImagem);
+    if (caminho && fs.existsSync(caminho)) fs.unlinkSync(caminho);
 }
 
-function normalizarData(data) {
-    if (!data || typeof data !== 'string') {
-        return null;
-    }
-
-    const dataLimpa = data.trim();
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dataLimpa)) {
-        return dataLimpa;
-    }
-
-    const partes = dataLimpa.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-
-    if (!partes) {
-        return null;
-    }
-
-    const [, dia, mes, ano] = partes;
-    const dataConvertida = new Date(`${ano}-${mes}-${dia}T00:00:00Z`);
-
-    if (
-        Number.isNaN(dataConvertida.getTime()) ||
-        dataConvertida.getUTCFullYear() !== Number(ano) ||
-        dataConvertida.getUTCMonth() + 1 !== Number(mes) ||
-        dataConvertida.getUTCDate() !== Number(dia)
-    ) {
-        return null;
-    }
-
-    return `${ano}-${mes}-${dia}`;
+function excluirUploadDaRequisicao(req) {
+    if (req.file) excluirImagem(`/uploads/img_produtos/${req.file.filename}`);
 }
 
-function formatarDataParaApp(data) {
-    if (!data) {
-        return null;
-    }
-
-    const [ano, mes, dia] = String(data).slice(0, 10).split('-');
-    return `${dia}/${mes}/${ano}`;
+function urlImagem(req, imagem) {
+    if (!imagem || /^https?:\/\//i.test(imagem)) return imagem || null;
+    return `${req.protocol}://${req.get('host')}${imagem}`;
 }
 
-function respostaCompraParaApp(produto, categoria, compra) {
+function compraParaApp(compra) {
     return {
-        produto: {
-            id: produto.id_produto,
-            nome: produto.nome,
-            categoria: categoria.nome,
-            foto: produto.imagem,
-            removido: produto.removido
-        },
-        compra: {
-            id: compra.id_compra_produto,
-            quantidade: Number(compra.quantidade),
-            valor: Number(compra.valor),
-            dataCompra: formatarDataParaApp(compra.data_compra),
-            dataVencimento: formatarDataParaApp(compra.data_vencimento),
-            removida: compra.removida
-        }
+        id: compra.id_compra_produto,
+        quantidade: quantidadeDisponivel(compra),
+        quantidadeComprada: Number(compra.quantidade),
+        valor: Number(compra.valor),
+        dataCompra: formatarDataParaApp(compra.data_compra),
+        dataVencimento: formatarDataParaApp(compra.data_vencimento),
+        removida: compra.removida
     };
 }
 
-function respostaProdutoComComprasParaApp(produto) {
+function produtoParaApp(req, produto) {
+    const categoria = produto.categoria || produto.get?.('categoria');
+    const compras = produto.compras || produto.get?.('compras') || [];
+
     return {
         id: produto.id_produto,
         nome: produto.nome,
-        categoria: produto.categoria.nome,
-        foto: produto.imagem,
-        compras: produto.compras.map((compra) => ({
-            id: compra.id_compra_produto,
-            quantidade: Number(compra.quantidade),
-            valor: Number(compra.valor),
-            dataCompra: formatarDataParaApp(compra.data_compra),
-            dataVencimento: formatarDataParaApp(compra.data_vencimento),
-            removida: compra.removida
-        })),
+        categoria: categoria?.nome || null,
+        foto: urlImagem(req, produto.imagem),
+        compras: compras.map(compraParaApp),
         removido: produto.removido
     };
 }
 
-// Registra uma nova compra usando os nomes de campos consumidos pelo React Native.
 async function criarCompraProduto(req, res) {
-    const transaction = await sequelize.transaction();
+    let transaction;
+    let imagemAntiga = null;
 
     try {
-        let { nome, categoria, quantidade, valor, dataCompra, dataVencimento } = req.body;
+        transaction = await sequelize.transaction();
+        let {
+            nome, categoria, quantidade, valor, dataCompra,
+            dataVencimento
+        } = req.body;
 
         nome = nome?.trim();
         categoria = categoria?.trim();
-        quantidade = Number(String(quantidade).replace(',', '.'));
-        valor = Number(String(valor).replace(',', '.'));
+        quantidade = numeroDecimal(quantidade);
+        valor = numeroDecimal(valor);
 
         if (!nome || !categoria) {
-            await transaction.rollback();
-            return res.status(400).json({
-                erro: 'Nome e categoria do produto são obrigatórios.'
-            });
+            throw erroHttp(400, 'Nome e categoria do produto são obrigatórios.');
         }
-
         if (!Number.isFinite(quantidade) || quantidade <= 0) {
-            await transaction.rollback();
-            return res.status(400).json({
-                erro: 'A quantidade deve ser maior que zero.'
-            });
+            throw erroHttp(400, 'A quantidade deve ser maior que zero.');
         }
-
         if (!Number.isFinite(valor) || valor <= 0) {
-            await transaction.rollback();
-            return res.status(400).json({
-                erro: 'O valor da compra deve ser maior que zero.'
-            });
+            throw erroHttp(400, 'O valor total da compra deve ser maior que zero.');
         }
 
         const dataCompraNormalizada = normalizarData(dataCompra);
@@ -138,54 +101,30 @@ async function criarCompraProduto(req, res) {
             : null;
 
         if (!dataCompraNormalizada) {
-            await transaction.rollback();
-            return res.status(400).json({
-                erro: 'A data de compra deve estar em DD/MM/AAAA ou AAAA-MM-DD.'
-            });
+            throw erroHttp(400, 'A data de compra deve estar em DD/MM/AAAA ou AAAA-MM-DD.');
         }
-
         if (dataVencimento && !dataVencimentoNormalizada) {
-            await transaction.rollback();
-            return res.status(400).json({
-                erro: 'A data de vencimento deve estar em DD/MM/AAAA ou AAAA-MM-DD.'
-            });
+            throw erroHttp(400, 'A data de vencimento deve estar em DD/MM/AAAA ou AAAA-MM-DD.');
         }
-
-        if (
-            dataVencimentoNormalizada &&
-            dataVencimentoNormalizada < dataCompraNormalizada
-        ) {
-            await transaction.rollback();
-            return res.status(400).json({
-                erro: 'A data de vencimento não pode ser anterior à data da compra.'
-            });
+        if (dataVencimentoNormalizada && dataVencimentoNormalizada < dataCompraNormalizada) {
+            throw erroHttp(400, 'A data de vencimento não pode ser anterior à data da compra.');
         }
 
         const categoriaEncontrada = await Categoria.findOne({
-            where: {
-                nome: {
-                    [Op.iLike]: categoria
-                }
-            },
+            where: { nome: { [Op.iLike]: categoria } },
             transaction
         });
 
         if (!categoriaEncontrada) {
-            await transaction.rollback();
-            return res.status(404).json({
-                erro: 'Categoria não encontrada. Cadastre-a antes de registrar a compra.'
-            });
+            throw erroHttp(404, 'Categoria não encontrada. Consulte GET /api/categorias.');
         }
 
-        const imagem = req.file
+        const novaImagem = req.file
             ? `/uploads/img_produtos/${req.file.filename}`
             : null;
-
         let produto = await Produto.findOne({
             where: {
-                nome: {
-                    [Op.iLike]: nome
-                },
+                nome: { [Op.iLike]: nome },
                 id_categoria: categoriaEncontrada.id_categoria,
                 removido: false
             },
@@ -196,43 +135,65 @@ async function criarCompraProduto(req, res) {
         if (!produto) {
             produto = await Produto.create({
                 nome,
-                imagem,
+                imagem: novaImagem,
                 id_categoria: categoriaEncontrada.id_categoria,
-                unidade: 'unidade',
                 quantidade_minima: 2,
                 custo: valor / quantidade,
                 data_compra: dataCompraNormalizada,
                 data_vencimento: dataVencimentoNormalizada,
                 removido: false
             }, { transaction });
-        } else if (!produto.imagem && imagem) {
-            await produto.update({ imagem }, { transaction });
+        } else {
+            const atualizacoes = {
+                custo: valor / quantidade,
+                data_compra: dataCompraNormalizada,
+                data_vencimento: dataVencimentoNormalizada
+            };
+            if (novaImagem) {
+                imagemAntiga = produto.imagem;
+                atualizacoes.imagem = novaImagem;
+            }
+            await produto.update(atualizacoes, { transaction });
         }
 
         const compra = await CompraProduto.create({
             id_produto: produto.id_produto,
             quantidade,
+            quantidade_disponivel: quantidade,
             valor,
             data_compra: dataCompraNormalizada,
-            data_vencimento: dataVencimentoNormalizada
+            data_vencimento: dataVencimentoNormalizada,
+            removida: false
+        }, { transaction });
+
+        await MovimentacaoEstoque.create({
+            id_produto: produto.id_produto,
+            id_usuario: req.usuario.idUsuario,
+            id_compra_produto: compra.id_compra_produto,
+            tipo: 'ENTRADA',
+            quantidade,
+            observacao: 'Compra de produto registrada pelo aplicativo.'
         }, { transaction });
 
         await transaction.commit();
+        if (imagemAntiga) excluirImagem(imagemAntiga);
 
-        return res.status(201).json(
-            respostaCompraParaApp(produto, categoriaEncontrada, compra)
-        );
+        produto.setDataValue('categoria', categoriaEncontrada);
+        produto.setDataValue('compras', [compra]);
+        return res.status(201).json({
+            produto: produtoParaApp(req, produto),
+            compra: compraParaApp(compra)
+        });
     } catch (error) {
-        await transaction.rollback();
+        if (transaction && !transaction.finished) await transaction.rollback();
+        excluirUploadDaRequisicao(req);
         console.error('Erro ao registrar compra de produto:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
+        return res.status(error.status || 500).json({
+            erro: error.status ? error.message : 'Erro interno do servidor.'
         });
     }
 }
 
-// Retorna a estrutura de Produto consumida pelo app React Native.
 async function listarProdutosComCompras(req, res) {
     try {
         const produtos = await Produto.findAll({
@@ -246,12 +207,8 @@ async function listarProdutosComCompras(req, res) {
                     model: CompraProduto,
                     as: 'compras',
                     attributes: [
-                        'id_compra_produto',
-                        'quantidade',
-                        'valor',
-                        'data_compra',
-                        'data_vencimento',
-                        'removida'
+                        'id_compra_produto', 'quantidade', 'quantidade_disponivel',
+                        'valor', 'data_compra', 'data_vencimento', 'removida'
                     ]
                 }
             ],
@@ -260,389 +217,198 @@ async function listarProdutosComCompras(req, res) {
                 [{ model: CompraProduto, as: 'compras' }, 'id_compra_produto', 'DESC']
             ]
         });
-
         return res.status(200).json(
-            produtos.map(respostaProdutoComComprasParaApp)
+            produtos.map((produto) => produtoParaApp(req, produto))
         );
     } catch (error) {
         console.error('Erro ao listar produtos com compras:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
+async function buscarProdutoComCompras(req, res) {
+    try {
+        const produto = await Produto.findByPk(req.params.id, {
+            include: [
+                { model: Categoria, as: 'categoria' },
+                { model: CompraProduto, as: 'compras' }
+            ]
+        });
+        if (!produto) return res.status(404).json({ erro: 'Produto não encontrado.' });
+        return res.status(200).json(produtoParaApp(req, produto));
+    } catch (error) {
+        console.error('Erro ao buscar produto:', error);
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
+    }
+}
+
+// Rotas de catálogo preservadas para manter compatibilidade com o backend original.
 async function listarProdutos(req, res) {
     try {
         const produtos = await Produto.findAll({
-            include: {
-                model: Categoria,
-                as: 'categoria',
-                attributes: ['id_categoria', 'nome']
-            },
+            include: { model: Categoria, as: 'categoria' },
             order: [['nome', 'ASC']]
         });
-
         return res.status(200).json(produtos);
-
     } catch (error) {
-        console.error('Erro ao listar produtos:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        console.error('Erro ao listar catálogo:', error);
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
 async function buscarProduto(req, res) {
     try {
-        const { id } = req.params;
-
-        const produto = await Produto.findByPk(id, {
-            include: {
-                model: Categoria,
-                as: 'categoria',
-                attributes: ['id_categoria', 'nome']
-            }
+        const produto = await Produto.findByPk(req.params.id, {
+            include: { model: Categoria, as: 'categoria' }
         });
-
-        if (!produto) {
-            return res.status(404).json({
-                erro: 'Produto não encontrado.'
-            });
-        }
-
-        return res.status(200).json(produto);
-
+        return produto
+            ? res.status(200).json(produto)
+            : res.status(404).json({ erro: 'Produto não encontrado.' });
     } catch (error) {
-        console.error('Erro ao buscar produto:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        console.error('Erro ao buscar catálogo:', error);
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
 async function criarProduto(req, res) {
     try {
-        let {
-            nome,
-            id_categoria,
-            unidade,
-            quantidade_minima,
-            custo,
-            data_compra,
-            data_vencimento
-        } = req.body;
-
-        const imagem = req.file
-            ? `/uploads/img_produtos/${req.file.filename}`
+        const idCategoria = Number(req.body.id_categoria);
+        const categoria = Number.isInteger(idCategoria)
+            ? await Categoria.findByPk(idCategoria)
             : null;
+        const nome = req.body.nome?.trim();
+        const custo = numeroDecimal(req.body.custo);
 
-        nome = nome?.trim();
-        unidade = unidade?.trim();
-
-        if (!nome) {
+        if (!nome || !categoria || !Number.isFinite(custo) || custo < 0) {
+            excluirUploadDaRequisicao(req);
             return res.status(400).json({
-                erro: 'O nome do produto é obrigatório.'
+                erro: 'Informe nome, id_categoria existente e custo válido.'
             });
         }
 
-        if (!unidade) {
-            return res.status(400).json({
-                erro: 'A unidade do produto é obrigatória.'
-            });
-        }
-
-        if (!Number.isInteger(Number(id_categoria))) {
-            return res.status(400).json({
-                erro: 'id_categoria inválido.'
-            });
-        }
-
-        id_categoria = Number(id_categoria);
-
-        const categoria = await Categoria.findByPk(id_categoria);
-
-        if (!categoria) {
-            return res.status(404).json({
-                erro: 'Categoria não encontrada.'
-            });
-        }
-
-        if (custo === undefined || custo === null || custo === '') {
-            return res.status(400).json({
-                erro: 'O custo do produto é obrigatório.'
-            });
-        }
-
-        custo = Number(custo);
-
-        if (!Number.isFinite(custo) || custo < 0) {
-            return res.status(400).json({
-                erro: 'O custo deve ser um número maior ou igual a zero.'
-            });
-        }
-
-        if (quantidade_minima !== undefined && quantidade_minima !== null && quantidade_minima !== '') {
-            quantidade_minima = Number(quantidade_minima);
-
-            if (!Number.isInteger(quantidade_minima) || quantidade_minima < 0) {
-                return res.status(400).json({
-                    erro: 'A quantidade mínima deve ser um número inteiro maior ou igual a zero.'
-                });
-            }
-        } else {
-            quantidade_minima = 2;
+        const quantidadeMinima = req.body.quantidade_minima === undefined
+            ? 2
+            : numeroDecimal(req.body.quantidade_minima);
+        if (!Number.isFinite(quantidadeMinima) || quantidadeMinima < 0) {
+            excluirUploadDaRequisicao(req);
+            return res.status(400).json({ erro: 'quantidade_minima inválida.' });
         }
 
         const produto = await Produto.create({
             nome,
-            imagem,
-            id_categoria,
-            unidade,
-            quantidade_minima,
+            imagem: req.file ? `/uploads/img_produtos/${req.file.filename}` : null,
+            id_categoria: idCategoria,
+            quantidade_minima: quantidadeMinima,
             custo,
-            data_compra: data_compra || null,
-            data_vencimento: data_vencimento || null
+            data_compra: normalizarData(req.body.data_compra),
+            data_vencimento: normalizarData(req.body.data_vencimento)
         });
-
         return res.status(201).json(produto);
-
     } catch (error) {
-        console.error('Erro ao criar produto:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        excluirUploadDaRequisicao(req);
+        console.error('Erro ao criar produto no catálogo:', error);
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
 async function atualizarProduto(req, res) {
     try {
-        const { id } = req.params;
-
-        let {
-            nome,
-            id_categoria,
-            unidade,
-            quantidade_minima,
-            custo,
-            data_compra,
-            data_vencimento
-        } = req.body;
-
-        const produto = await Produto.findByPk(id);
-
+        const produto = await Produto.findByPk(req.params.id);
         if (!produto) {
-            return res.status(404).json({
-                erro: 'Produto não encontrado.'
-            });
+            excluirUploadDaRequisicao(req);
+            return res.status(404).json({ erro: 'Produto não encontrado.' });
         }
 
-        nome = nome?.trim();
-        unidade = unidade?.trim();
+        const idCategoria = Number(req.body.id_categoria);
+        const categoria = await Categoria.findByPk(idCategoria);
+        const nome = req.body.nome?.trim();
+        const custo = numeroDecimal(req.body.custo);
+        const quantidadeMinima = numeroDecimal(req.body.quantidade_minima);
 
-        if (!nome) {
-            return res.status(400).json({
-                erro: 'O nome do produto é obrigatório.'
-            });
+        if (!nome || !categoria || !Number.isFinite(custo) || custo < 0 ||
+            !Number.isFinite(quantidadeMinima) || quantidadeMinima < 0) {
+            excluirUploadDaRequisicao(req);
+            return res.status(400).json({ erro: 'Dados do produto inválidos.' });
         }
 
-        if (!unidade) {
-            return res.status(400).json({
-                erro: 'A unidade do produto é obrigatória.'
-            });
-        }
-
-        if (!Number.isInteger(Number(id_categoria))) {
-            return res.status(400).json({
-                erro: 'id_categoria inválido.'
-            });
-        }
-
-        id_categoria = Number(id_categoria);
-
-        const categoria = await Categoria.findByPk(id_categoria);
-
-        if (!categoria) {
-            return res.status(404).json({
-                erro: 'Categoria não encontrada.'
-            });
-        }
-
-        if (custo === undefined || custo === null || custo === '') {
-            return res.status(400).json({
-                erro: 'O custo do produto é obrigatório.'
-            });
-        }
-
-        custo = Number(custo);
-
-        if (!Number.isFinite(custo) || custo < 0) {
-            return res.status(400).json({
-                erro: 'O custo deve ser um número maior ou igual a zero.'
-            });
-        }
-
-        quantidade_minima = Number(quantidade_minima);
-
-        if (!Number.isInteger(quantidade_minima) ||quantidade_minima < 0){
-            return res.status(400).json({
-                erro: 'A quantidade mínima deve ser um número inteiro maior ou igual a zero.'
-            });
-        }
-
-        // Guarda o caminho da imagem antiga
         const imagemAntiga = produto.imagem;
-
-        // Se enviou nova imagem, usa a nova.Caso contrário, mantém a antiga.
-        const novaImagem = req.file
-            ? `/uploads/img_produtos/${req.file.filename}`
-            : imagemAntiga;
-
         await produto.update({
             nome,
-            imagem: novaImagem,
-            id_categoria,
-            unidade,
-            quantidade_minima,
+            imagem: req.file ? `/uploads/img_produtos/${req.file.filename}` : imagemAntiga,
+            id_categoria: idCategoria,
+            quantidade_minima: quantidadeMinima,
             custo,
-            data_compra: data_compra || null,
-            data_vencimento: data_vencimento || null
+            data_compra: normalizarData(req.body.data_compra),
+            data_vencimento: normalizarData(req.body.data_vencimento)
         });
 
-        // Só apaga a imagem antiga depois que o banco for atualizado
-        if (req.file && imagemAntiga) {
-            excluirImagem(imagemAntiga);
-        }
-
+        if (req.file && imagemAntiga) excluirImagem(imagemAntiga);
         return res.status(200).json(produto);
-
     } catch (error) {
+        excluirUploadDaRequisicao(req);
         console.error('Erro ao atualizar produto:', error);
-
-        // Se uma nova imagem foi enviada mas ocorreu erro, apagamos a nova imagem para não deixar arquivo órfão.
-        if (req.file) {
-            const novaImagem = path.join(__dirname,'../..',
-                'uploads',
-                'img_produtos',
-                req.file.filename
-            );
-
-            if (fs.existsSync(novaImagem)) {
-                fs.unlinkSync(novaImagem);
-            }
-        }
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
-// Exclusão lógica para preservar o histórico de compras do produto.
 async function excluirProduto(req, res) {
     try {
-        const { id } = req.params;
-
-        const produto = await Produto.findByPk(id);
-
-        if (!produto) {
-            return res.status(404).json({
-                erro: 'Produto não encontrado.'
-            });
-        }
-
-        if (produto.removido) {
-            return res.status(409).json({
-                erro: 'Produto já foi removido do estoque.'
-            });
-        }
+        const produto = await Produto.findByPk(req.params.id);
+        if (!produto) return res.status(404).json({ erro: 'Produto não encontrado.' });
+        if (produto.removido) return res.status(409).json({ erro: 'Produto já foi removido.' });
 
         await produto.update({ removido: true });
-
         return res.status(200).json({
             mensagem: 'Produto removido do estoque com sucesso.',
             removido: true
         });
-
     } catch (error) {
-        console.error('Erro ao excluir produto:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        console.error('Erro ao remover produto:', error);
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
-// Remove uma compra da visualização do estoque, mantendo-a no histórico.
 async function excluirCompraProduto(req, res) {
     try {
-        const { id, idCompra } = req.params;
-
-        const produto = await Produto.findByPk(id);
-
-        if (!produto) {
-            return res.status(404).json({
-                erro: 'Produto não encontrado.'
-            });
-        }
-
         const compra = await CompraProduto.findOne({
             where: {
-                id_compra_produto: idCompra,
-                id_produto: produto.id_produto
+                id_compra_produto: req.params.idCompra,
+                id_produto: req.params.id
             }
         });
-
-        if (!compra) {
-            return res.status(404).json({
-                erro: 'Compra não encontrada para este produto.'
-            });
-        }
-
-        if (compra.removida) {
-            return res.status(409).json({
-                erro: 'Compra já foi removida do estoque.'
-            });
-        }
+        if (!compra) return res.status(404).json({ erro: 'Compra não encontrada.' });
+        if (compra.removida) return res.status(409).json({ erro: 'Compra já foi removida.' });
 
         await compra.update({ removida: true });
-
         const comprasVisiveis = await CompraProduto.count({
-            where: {
-                id_produto: produto.id_produto,
-                removida: false
-            }
+            where: { id_produto: req.params.id, removida: false }
         });
-
         if (comprasVisiveis === 0) {
-            await produto.update({ removido: true });
+            await Produto.update(
+                { removido: true },
+                { where: { id_produto: req.params.id } }
+            );
         }
 
         return res.status(200).json({
-            mensagem: 'Compra removida do estoque com sucesso.',
+            mensagem: 'Compra removida do estoque; histórico financeiro preservado.',
             compra_removida: true,
             produto_removido: comprasVisiveis === 0
         });
     } catch (error) {
-        console.error('Erro ao remover compra de produto:', error);
-
-        return res.status(500).json({
-            erro: 'Erro interno do servidor.'
-        });
+        console.error('Erro ao remover compra:', error);
+        return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
 module.exports = {
-    criarCompraProduto,
-    listarProdutosComCompras,
-    listarProdutos,
-    buscarProduto,
-    criarProduto,
     atualizarProduto,
+    buscarProduto,
+    buscarProdutoComCompras,
+    criarCompraProduto,
+    criarProduto,
+    excluirCompraProduto,
     excluirProduto,
-    excluirCompraProduto
+    listarProdutos,
+    listarProdutosComCompras
 };

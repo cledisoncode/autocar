@@ -5,6 +5,11 @@ const {
     buscarAlertas
 } = require('../services/estoqueService');
 
+function urlImagem(req, imagem) {
+    if (!imagem || /^https?:\/\//i.test(imagem)) return imagem || null;
+    return `${req.protocol}://${req.get('host')}${imagem}`;
+}
+
 async function listarEstoque(req, res) {
     try {
         const {id_categoria,estoque_baixo} = req.query;
@@ -49,7 +54,10 @@ async function listarEstoque(req, res) {
             );
         }
 
-        return res.status(200).json(resultado);
+        return res.status(200).json(resultado.map((produto) => ({
+            ...produto,
+            imagem: urlImagem(req, produto.imagem)
+        })));
 
     } catch (error) {
 
@@ -63,11 +71,18 @@ async function listarEstoque(req, res) {
 
 async function listarAlertas(req, res) {
     try {
-        const alertas =await buscarAlertas();
+        const alertas = await buscarAlertas();
+        const resposta = alertas.map((alerta) => ({
+            ...alerta,
+            produto: {
+                ...alerta.produto,
+                foto: urlImagem(req, alerta.produto.foto)
+            }
+        }));
 
         return res.status(200).json({
-            total_alertas: alertas.length,
-            produtos: alertas
+            total_alertas: resposta.length,
+            produtos: resposta
         });
 
     } catch (error) {

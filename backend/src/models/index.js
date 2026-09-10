@@ -32,6 +32,16 @@ CompraProduto.belongsTo(Produto, {
     as: 'produto'
 });
 
+CompraProduto.hasMany(MovimentacaoEstoque, {
+    foreignKey: 'id_compra_produto',
+    as: 'movimentacoes'
+});
+
+MovimentacaoEstoque.belongsTo(CompraProduto, {
+    foreignKey: 'id_compra_produto',
+    as: 'compra'
+});
+
 // PRODUTO => MOVIMENTAÇÕES
 Produto.hasMany(MovimentacaoEstoque, {
     foreignKey: 'id_produto',

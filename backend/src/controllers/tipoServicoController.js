@@ -128,7 +128,7 @@ async function excluirTipoServico(req, res) {
     } catch (error) {
         console.error('Erro ao excluir tipo de serviço:', error);
 
-        if (error.name === 'SequelizeDatabaseError') {
+        if (error.name === 'SequelizeForeignKeyConstraintError') {
             return res.status(409).json({
                 erro: 'Não é possível excluir este tipo de serviço porque existem serviços associados a ele.'
             });

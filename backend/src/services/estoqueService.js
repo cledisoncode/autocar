@@ -1,43 +1,16 @@
+const { Produto, Categoria, CompraProduto } = require('../models');
 const {
-    Produto,
-    Categoria,
-    CompraProduto
-} = require('../models');
-
-function dataLocalISO() {
-    const hoje = new Date();
-    const ano = hoje.getFullYear();
-    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-    const dia = String(hoje.getDate()).padStart(2, '0');
-
-    return `${ano}-${mes}-${dia}`;
-}
-
-function adicionarDias(data, dias) {
-    const [ano, mes, dia] = data.split('-').map(Number);
-    const resultado = new Date(ano, mes - 1, dia);
-    resultado.setDate(resultado.getDate() + dias);
-
-    const anoResultado = resultado.getFullYear();
-    const mesResultado = String(resultado.getMonth() + 1).padStart(2, '0');
-    const diaResultado = String(resultado.getDate()).padStart(2, '0');
-
-    return `${anoResultado}-${mesResultado}-${diaResultado}`;
-}
-
-function formatarDataParaApp(data) {
-    if (!data) {
-        return null;
-    }
-
-    const [ano, mes, dia] = String(data).slice(0, 10).split('-');
-    return `${dia}/${mes}/${ano}`;
-}
+    adicionarDiasISO,
+    dataAtualISO,
+    formatarDataParaApp
+} = require('../utils/dateUtils');
+const { quantidadeDisponivel } = require('./stockMath');
 
 function compraParaApp(compra) {
     return {
         id: compra.id_compra_produto,
-        quantidade: Number(compra.quantidade),
+        quantidade: quantidadeDisponivel(compra),
+        quantidadeComprada: Number(compra.quantidade),
         valor: Number(compra.valor),
         dataCompra: formatarDataParaApp(compra.data_compra),
         dataVencimento: formatarDataParaApp(compra.data_vencimento),
@@ -45,37 +18,33 @@ function compraParaApp(compra) {
     };
 }
 
-// Calcula o estoque a partir das compras/lotes ainda visíveis e não vencidos.
-async function obterResumoEstoque(id_produto, transaction = null) {
+async function obterResumoEstoque(idProduto, transaction = null) {
     const compras = await CompraProduto.findAll({
-        where: {
-            id_produto,
-            removida: false
-        },
+        where: { id_produto: idProduto, removida: false },
         transaction
     });
-
-    const hoje = dataLocalISO();
-    const limiteProximoVencimento = adicionarDias(hoje, 30);
+    const hoje = dataAtualISO();
+    const limiteProximoVencimento = adicionarDiasISO(hoje, 30);
     const comprasValidas = compras.filter((compra) =>
         !compra.data_vencimento || compra.data_vencimento >= hoje
     );
-    const comprasProximas = compras.filter((compra) =>
+    const comprasProximas = comprasValidas.filter((compra) =>
+        quantidadeDisponivel(compra) > 0 &&
         compra.data_vencimento &&
-        compra.data_vencimento >= hoje &&
         compra.data_vencimento <= limiteProximoVencimento
     );
     const comprasVencidas = compras.filter((compra) =>
-        compra.data_vencimento && compra.data_vencimento < hoje
+        quantidadeDisponivel(compra) > 0 &&
+        compra.data_vencimento &&
+        compra.data_vencimento < hoje
     );
-
     const estoqueAtual = comprasValidas.reduce(
-        (total, compra) => total + Number(compra.quantidade),
+        (total, compra) => total + quantidadeDisponivel(compra),
         0
     );
 
     return {
-        estoqueAtual,
+        estoqueAtual: Math.round((estoqueAtual + Number.EPSILON) * 1000) / 1000,
         possuiComprasVisiveis: compras.length > 0,
         possuiComprasValidas: comprasValidas.length > 0,
         comprasProximas,
@@ -83,137 +52,93 @@ async function obterResumoEstoque(id_produto, transaction = null) {
     };
 }
 
-async function calcularEstoque(id_produto, transaction = null) {
-    const resumo = await obterResumoEstoque(id_produto, transaction);
-    return resumo.estoqueAtual;
+async function calcularEstoque(idProduto, transaction = null) {
+    return (await obterResumoEstoque(idProduto, transaction)).estoqueAtual;
 }
 
-// VERIFICA ESTOQUE BAIXO
 function estoqueEstaBaixo(estoqueAtual, quantidadeMinima) {
-    return estoqueAtual <= quantidadeMinima;
+    return estoqueAtual <= Number(quantidadeMinima);
 }
 
-//LISTA ESTOQUE
-async function buscarEstoque(id_categoria = null) {
-
-    const whereProduto = {
-        removido: false
-    };
-
-    if (id_categoria !== null) {
-        whereProduto.id_categoria = id_categoria;
-    }
+async function buscarEstoque(idCategoria = null) {
+    const where = { removido: false };
+    if (idCategoria !== null) where.id_categoria = idCategoria;
 
     const produtos = await Produto.findAll({
-
-        where: whereProduto,
-
-        include: [
-            {
-                model: Categoria,
-                as: 'categoria',
-                attributes: [
-                    'id_categoria',
-                    'nome'
-                ]
-            }
-        ],
-
+        where,
+        include: {
+            model: Categoria,
+            as: 'categoria',
+            attributes: ['id_categoria', 'nome']
+        },
         order: [['nome', 'ASC']]
     });
 
-
-    const estoque = await Promise.all(
-        produtos.map(async (produto) => {
-            const resumo = await obterResumoEstoque(produto.id_produto);
-
-            return {
-                id_produto: produto.id_produto,
-                nome: produto.nome,
-                imagem: produto.imagem,
-                unidade: produto.unidade,
-                custo: produto.custo,
-                quantidade_minima:produto.quantidade_minima,
-                categoria: produto.categoria,
-                estoque_atual: resumo.estoqueAtual,
-                estoque_baixo:
-                    resumo.possuiComprasVisiveis &&
-                    resumo.possuiComprasValidas &&
-                    estoqueEstaBaixo(
-                        resumo.estoqueAtual,
-                        produto.quantidade_minima
-                    )
-            };
-        })
-    );
-
-    return estoque;
+    return Promise.all(produtos.map(async (produto) => {
+        const resumo = await obterResumoEstoque(produto.id_produto);
+        return {
+            id_produto: produto.id_produto,
+            nome: produto.nome,
+            imagem: produto.imagem,
+            custo: Number(produto.custo),
+            quantidade_minima: Number(produto.quantidade_minima),
+            categoria: produto.categoria,
+            estoque_atual: resumo.estoqueAtual,
+            estoque_baixo: resumo.possuiComprasVisiveis &&
+                resumo.possuiComprasValidas &&
+                estoqueEstaBaixo(resumo.estoqueAtual, produto.quantidade_minima)
+        };
+    }));
 }
 
-//BUSCA ALERTAS
 async function buscarAlertas() {
     const produtos = await Produto.findAll({
-        where: {
-            removido: false
+        where: { removido: false },
+        include: {
+            model: Categoria,
+            as: 'categoria',
+            attributes: ['id_categoria', 'nome']
         },
-        include: [
-            {
-                model: Categoria,
-                as: 'categoria',
-                attributes: ['id_categoria', 'nome']
-            }
-        ],
         order: [['nome', 'ASC']]
     });
 
-    const alertas = await Promise.all(
-        produtos.map(async (produto) => {
-            const resumo = await obterResumoEstoque(produto.id_produto);
-            const estoqueBaixo =
-                resumo.possuiComprasVisiveis &&
-                resumo.possuiComprasValidas &&
-                estoqueEstaBaixo(
-                    resumo.estoqueAtual,
-                    produto.quantidade_minima
-                );
-            const produtoVencido =
-                resumo.comprasVencidas.length > 0 &&
-                resumo.estoqueAtual === 0;
+    const alertas = await Promise.all(produtos.map(async (produto) => {
+        const resumo = await obterResumoEstoque(produto.id_produto);
+        const estoqueBaixo = resumo.possuiComprasVisiveis &&
+            resumo.possuiComprasValidas &&
+            estoqueEstaBaixo(resumo.estoqueAtual, produto.quantidade_minima);
+        const produtoVencido = resumo.comprasVencidas.length > 0 &&
+            resumo.estoqueAtual === 0;
 
-            if (
-                !estoqueBaixo &&
-                resumo.comprasProximas.length === 0 &&
-                resumo.comprasVencidas.length === 0
-            ) {
-                return null;
-            }
+        if (!estoqueBaixo && resumo.comprasProximas.length === 0 &&
+            resumo.comprasVencidas.length === 0) {
+            return null;
+        }
 
-            return {
-                produto: {
-                    id: produto.id_produto,
-                    nome: produto.nome,
-                    categoria: produto.categoria.nome,
-                    foto: produto.imagem,
-                    compras: [],
-                    removido: produto.removido
-                },
-                quantidadeDisponivel: resumo.estoqueAtual,
-                estoqueBaixo,
-                comprasProximas: resumo.comprasProximas.map(compraParaApp),
-                comprasVencidas: resumo.comprasVencidas.map(compraParaApp),
-                produtoVencido
-            };
-        })
-    );
+        return {
+            produto: {
+                id: produto.id_produto,
+                nome: produto.nome,
+                categoria: produto.categoria.nome,
+                foto: produto.imagem,
+                compras: [],
+                removido: produto.removido
+            },
+            quantidadeDisponivel: resumo.estoqueAtual,
+            estoqueBaixo,
+            comprasProximas: resumo.comprasProximas.map(compraParaApp),
+            comprasVencidas: resumo.comprasVencidas.map(compraParaApp),
+            produtoVencido
+        };
+    }));
 
     return alertas.filter(Boolean);
 }
 
-
 module.exports = {
-    calcularEstoque,
-    obterResumoEstoque,
-    estoqueEstaBaixo,
+    buscarAlertas,
     buscarEstoque,
-    buscarAlertas
+    calcularEstoque,
+    estoqueEstaBaixo,
+    obterResumoEstoque
 };

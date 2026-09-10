@@ -1,89 +1,80 @@
 const { Op } = require('sequelize');
-const { Servico, CompraProduto } = require('../models');
-
-function dataLocalISO() {
-    const hoje = new Date();
-    const ano = hoje.getFullYear();
-    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-    const dia = String(hoje.getDate()).padStart(2, '0');
-
-    return `${ano}-${mes}-${dia}`;
-}
+const { CompraProduto, Servico } = require('../models');
+const {
+    adicionarDiasISO,
+    dataAtualISO,
+    inicioDoDia
+} = require('../utils/dateUtils');
 
 function periodoFinanceiro(query) {
-    const periodo = query.periodo || 'hoje';
+    const periodo = String(query.periodo || 'hoje').toLowerCase();
 
-    if (periodo === 'hoje') {
-        const inicio = dataLocalISO();
-        const [ano, mes, dia] = inicio.split('-').map(Number);
-        const proximoDia = new Date(ano, mes - 1, dia + 1);
-        const fimExclusivo = [
-            proximoDia.getFullYear(),
-            String(proximoDia.getMonth() + 1).padStart(2, '0'),
-            String(proximoDia.getDate()).padStart(2, '0')
-        ].join('-');
-
-        return { periodo, inicio, fimExclusivo };
+    if (periodo === 'todos') {
+        return { periodo, inicio: null, fimExclusivo: null };
     }
 
-    if (periodo === 'mes' && /^\d{4}-\d{2}$/.test(query.mes || '')) {
-        const [ano, mes] = query.mes.split('-').map(Number);
+    if (periodo === 'hoje') {
+        const inicio = dataAtualISO();
+        return { periodo, inicio, fimExclusivo: adicionarDiasISO(inicio, 1) };
+    }
 
-        if (mes >= 1 && mes <= 12) {
-            const inicio = `${query.mes}-01`;
-            const proximoMes = new Date(ano, mes, 1);
-            const fimExclusivo = [
-                proximoMes.getFullYear(),
-                String(proximoMes.getMonth() + 1).padStart(2, '0'),
-                '01'
-            ].join('-');
+    if (periodo === 'mes') {
+        const mesSelecionado = query.mes || dataAtualISO().slice(0, 7);
 
-            return { periodo, inicio, fimExclusivo };
-        }
+        if (!/^\d{4}-\d{2}$/.test(mesSelecionado)) return null;
+        const [ano, mes] = mesSelecionado.split('-').map(Number);
+        if (mes < 1 || mes > 12) return null;
+
+        const inicio = `${mesSelecionado}-01`;
+        const fimExclusivo = mes === 12
+            ? `${ano + 1}-01-01`
+            : `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
+        return { periodo, inicio, fimExclusivo };
     }
 
     return null;
 }
 
-// GET /api/relatorios/financeiro?periodo=hoje
-// GET /api/relatorios/financeiro?periodo=mes&mes=2026-08
 async function resumoFinanceiro(req, res) {
     try {
         const intervalo = periodoFinanceiro(req.query);
-
         if (!intervalo) {
             return res.status(400).json({
-                erro: 'Use periodo=hoje ou periodo=mes&mes=AAAA-MM.'
+                erro: 'Use periodo=hoje, periodo=mes&mes=AAAA-MM ou periodo=todos.'
             });
+        }
+
+        const whereServico = { id_usuario: req.usuario.idUsuario };
+        const whereCompra = {};
+
+        if (intervalo.inicio) {
+            whereServico.data_servico = {
+                [Op.gte]: inicioDoDia(intervalo.inicio),
+                [Op.lt]: inicioDoDia(intervalo.fimExclusivo)
+            };
+            whereCompra.data_compra = {
+                [Op.gte]: intervalo.inicio,
+                [Op.lt]: intervalo.fimExclusivo
+            };
         }
 
         const [atendimentos, compras] = await Promise.all([
             Servico.findAll({
-                where: {
-                    data_servico: {
-                        [Op.gte]: intervalo.inicio,
-                        [Op.lt]: intervalo.fimExclusivo
-                    }
-                },
+                where: whereServico,
                 attributes: ['id_servico', 'preco']
             }),
             CompraProduto.findAll({
-                where: {
-                    data_compra: {
-                        [Op.gte]: intervalo.inicio,
-                        [Op.lt]: intervalo.fimExclusivo
-                    }
-                },
+                where: whereCompra,
                 attributes: ['id_compra_produto', 'valor']
             })
         ]);
 
         const entradas = atendimentos.reduce(
-            (total, atendimento) => total + Number(atendimento.preco),
+            (total, item) => total + Number(item.preco),
             0
         );
         const despesas = compras.reduce(
-            (total, compra) => total + Number(compra.valor),
+            (total, item) => total + Number(item.valor),
             0
         );
 
@@ -101,11 +92,8 @@ async function resumoFinanceiro(req, res) {
         });
     } catch (error) {
         console.error('Erro ao gerar resumo financeiro:', error);
-
         return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
-module.exports = {
-    resumoFinanceiro
-};
+module.exports = { periodoFinanceiro, resumoFinanceiro };

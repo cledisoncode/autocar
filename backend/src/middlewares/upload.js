@@ -15,7 +15,12 @@ const storage = multer.diskStorage({
     },
 
     filename: (req, file, cb) => {
-        const extensao = path.extname(file.originalname);
+        const extensoes = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/webp': '.webp'
+        };
+        const extensao = extensoes[file.mimetype] || '';
 
         const nomeArquivo = `${Date.now()}-${Math.round(Math.random() * 1E9)}${extensao}`;
 

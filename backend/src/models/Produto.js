@@ -23,11 +23,6 @@ const Produto = sequelize.define('Produto', {
         allowNull: false
     },
 
-    unidade: {
-        type: DataTypes.STRING(30),
-        allowNull: false
-    },
-
     quantidade_minima: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -36,7 +31,8 @@ const Produto = sequelize.define('Produto', {
 
     custo: {
         type: DataTypes.DECIMAL(10, 2),
-        allowNull: false
+        allowNull: false,
+        defaultValue: 0
     },
 
     data_compra: {
