@@ -3,8 +3,9 @@ Projeto Extensionista - Programação para Dispositivos Móveis em Android - 202
 
 
 ## Participantes
-<p>Cledison Viana
-Jessica Carvalho 
+<p>
+  Cledison Viana<br>
+  Jessica Carvalho<br>
 </p>
 
 <p>Orientador: Prof. Fábio Santos</p>
