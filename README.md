@@ -2,7 +2,7 @@
 Projeto Extensionista - Programação para Dispositivos Móveis em Android - 2026.2 - Projeto desenvolvido para a empresa "Autocar Estética Automotiva"
 
 
-#Participantes
+# Participantes
 Cledison Viana
 Jessica Carvalho 
 
