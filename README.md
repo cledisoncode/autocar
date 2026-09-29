@@ -3,8 +3,11 @@ Projeto Extensionista - Programação para Dispositivos Móveis em Android - 202
 
 <h2>Participantes</h2>
 <ul>
-  <li>Cledison Viana</li>
-  <li>Jessica Carvalho</li>
+  <li>Cledison Gonçalves Viana</li>
+  <li>Jessica Freire de Carvalho</li>
+  <li>Alexandre da Silva Nobre Filho</li>
+  <li>Maria Heloysa dos Santos Leal </li>
+  <li>Pedro Henrique de Melo Ferreira</li>
 </ul>
 
-<p>Orientador: Prof. Fábio Santos</p>
+<p>Orientador: Prof. Fábio dos Santos</p>
