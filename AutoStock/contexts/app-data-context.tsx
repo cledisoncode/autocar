@@ -15,6 +15,7 @@ import {
   excluirProdutoApi,
   listarAtendimentosApi,
   listarProdutosApi,
+  registrarSaidaApi,
   removerToken,
 } from '@/services/api';
 
@@ -38,17 +39,11 @@ export type CategoriaProduto =
 export type CompraProduto = {
   id: number;
   quantidade: number;
+  quantidadeDisponivel?: number;
+  quantidadeComprada?: number;
   valor: number;
   dataCompra: string;
   dataVencimento: string | null;
-
-  /*
-    A compra continua guardada
-    para o histórico financeiro.
-
-    true significa apenas que ela
-    não deve mais aparecer no estoque.
-  */
   removida: boolean;
 };
 
@@ -58,14 +53,6 @@ export type Produto = {
   categoria: CategoriaProduto;
   foto: string | null;
   compras: CompraProduto[];
-
-  /*
-    O produto continua guardado
-    para preservar seu histórico.
-
-    true significa que ele não deve
-    mais aparecer no estoque.
-  */
   removido: boolean;
 };
 
@@ -76,7 +63,7 @@ export type Usuario = {
   email: string;
 };
 
-type NovaCompraProduto = {
+type NovoProduto = {
   nome: string;
   categoria: CategoriaProduto;
   foto: string | null;
@@ -85,6 +72,11 @@ type NovaCompraProduto = {
   dataCompra: string;
   dataVencimento: string | null;
 };
+
+type NovaCompraProduto = Omit<
+  NovoProduto,
+  'nome' | 'categoria' | 'foto'
+>;
 
 type NovoUsuario = {
   nome: string;
@@ -96,21 +88,25 @@ type NovoUsuario = {
 type AppDataContextType = {
   atendimentos: Atendimento[];
 
-  /*
-    Aqui permanecem todos os produtos,
-    inclusive os removidos.
-
-    Isso preserva as compras antigas
-    para Financeiro e Relatórios.
-  */
   produtos: Produto[];
 
   adicionarAtendimento: (
     atendimento: Atendimento
   ) => Promise<void>;
 
+  cadastrarProduto: (
+    dados: NovoProduto
+  ) => Promise<void>;
+
   adicionarCompraProduto: (
+    produtoId: number,
     dados: NovaCompraProduto
+  ) => Promise<void>;
+
+  retirarUnidadesProduto: (
+    produtoId: number,
+    compraId: number,
+    quantidade: number
   ) => Promise<void>;
 
   excluirProdutoDoEstoque: (
@@ -122,11 +118,9 @@ type AppDataContextType = {
     compraId: number
   ) => Promise<void>;
 
-  usuarioCadastrado:
-    Usuario | null;
+  usuarioCadastrado: Usuario | null;
 
-  usuarioLogado:
-    Usuario | null;
+  usuarioLogado: Usuario | null;
 
   cadastrarUsuario: (
     dados: NovoUsuario
@@ -157,30 +151,26 @@ export function AppDataProvider({
   const [
     atendimentos,
     setAtendimentos,
-  ] =
-    useState<Atendimento[]>([]);
+  ] = useState<Atendimento[]>([]);
 
   const [
     produtos,
     setProdutos,
-  ] =
-    useState<Produto[]>([]);
+  ] = useState<Produto[]>([]);
 
   const [
     usuarioCadastrado,
     setUsuarioCadastrado,
-  ] =
-    useState<Usuario | null>(
-      null
-    );
+  ] = useState<Usuario | null>(
+    null
+  );
 
   const [
     usuarioLogado,
     setUsuarioLogado,
-  ] =
-    useState<Usuario | null>(
-      null
-    );
+  ] = useState<Usuario | null>(
+    null
+  );
 
   async function carregarAtendimentos() {
     const resposta =
@@ -255,8 +245,8 @@ export function AppDataProvider({
     );
   }, [usuarioLogado]);
 
-  async function adicionarCompraProduto(
-    dados: NovaCompraProduto
+  async function cadastrarProduto(
+    dados: NovoProduto
   ) {
     await cadastrarProdutoApi({
       nome:
@@ -284,16 +274,50 @@ export function AppDataProvider({
     await carregarProdutos();
   }
 
-  /*
-    EXCLUIR PRODUTO INTEIRO
+  async function adicionarCompraProduto(
+    produtoId: number,
+    dados: NovaCompraProduto
+  ) {
+    const produto = produtos.find(
+      (item) =>
+        item.id === produtoId &&
+        !item.removido
+    );
 
-    O produto não é apagado de verdade.
+    if (!produto) {
+      throw new Error(
+        'Produto não encontrado no estoque.'
+      );
+    }
 
-    Ele deixa de aparecer no estoque,
-    porém todas as compras continuam
-    guardadas para Financeiro e
-    Relatórios.
-  */
+    await cadastrarProdutoApi({
+      nome: produto.nome,
+      categoria: produto.categoria,
+      foto: null,
+      quantidade: dados.quantidade,
+      valor: dados.valor,
+      dataCompra: dados.dataCompra,
+      dataVencimento:
+        dados.dataVencimento,
+    });
+
+    await carregarProdutos();
+  }
+
+  async function retirarUnidadesProduto(
+    produtoId: number,
+    compraId: number,
+    quantidade: number
+  ) {
+    await registrarSaidaApi(
+      produtoId,
+      compraId,
+      quantidade
+    );
+
+    await carregarProdutos();
+  }
+
   async function excluirProdutoDoEstoque(
     produtoId: number
   ) {
@@ -304,18 +328,6 @@ export function AppDataProvider({
     await carregarProdutos();
   }
 
-  /*
-    EXCLUIR UMA COMPRA ESPECÍFICA
-
-    A compra deixa de aparecer no
-    estoque, mas continua guardada
-    para o histórico financeiro.
-
-    Se nenhuma compra continuar
-    disponível para visualização,
-    o produto também deixa de
-    aparecer no estoque.
-  */
   async function excluirCompraDoEstoque(
     produtoId: number,
     compraId: number
@@ -352,11 +364,6 @@ export function AppDataProvider({
       resposta.usuario
     );
 
-    /*
-      Depois do cadastro, o aplicativo
-      volta ao login. Por isso o token
-      recebido no cadastro é removido.
-    */
     removerToken();
 
     return true;
@@ -389,9 +396,7 @@ export function AppDataProvider({
     removerToken();
 
     setUsuarioLogado(null);
-
     setProdutos([]);
-
     setAtendimentos([]);
   }
 
@@ -414,27 +419,18 @@ export function AppDataProvider({
     <AppDataContext.Provider
       value={{
         atendimentos,
-
         produtos,
-
         adicionarAtendimento,
-
+        cadastrarProduto,
         adicionarCompraProduto,
-
+        retirarUnidadesProduto,
         excluirProdutoDoEstoque,
-
         excluirCompraDoEstoque,
-
         usuarioCadastrado,
-
         usuarioLogado,
-
         cadastrarUsuario,
-
         entrarUsuario,
-
         sairUsuario,
-
         emailPertenceAoUsuario,
       }}
     >

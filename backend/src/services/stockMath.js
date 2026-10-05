@@ -33,20 +33,27 @@ function planejarSaida(compras, quantidadeSolicitada) {
         }
 
         const retirada = arredondarQuantidade(Math.min(disponivel, restante));
+
         alocacoes.push({
             compra,
             retirada,
             saldo: arredondarQuantidade(disponivel - retirada)
         });
+
         restante = arredondarQuantidade(restante - retirada);
     }
 
     return { alocacoes, restante };
 }
 
+function planejarSaidaDaCompra(compra, quantidadeSolicitada) {
+    return planejarSaida(compra ? [compra] : [], quantidadeSolicitada);
+}
+
 module.exports = {
     arredondarQuantidade,
     quantidadeDisponivel,
     ordenarComprasParaSaida,
-    planejarSaida
+    planejarSaida,
+    planejarSaidaDaCompra
 };

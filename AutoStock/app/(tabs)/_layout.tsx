@@ -122,12 +122,7 @@ export default function TabLayout() {
         }}
       />
 
-      <Tabs.Screen
-        name="relatorios"
-        options={{
-          href: null,
-        }}
-      />
+      
 
       <Tabs.Screen
         name="minha-conta"

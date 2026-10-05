@@ -1,4 +1,13 @@
 import {
+  comprasVisiveis,
+  converterData,
+  produtoEstoqueBaixo,
+  quantidadeDaCompraDisponivel,
+  quantidadeDisponivel,
+  situacaoVencimento,
+} from '@/utils/estoque';
+
+import {
   Ionicons,
 } from '@expo/vector-icons';
 
@@ -19,11 +28,6 @@ import {
   useAppData,
 } from '@/contexts/app-data-context';
 
-type SituacaoVencimento =
-  | 'valido'
-  | 'proximo'
-  | 'vencido';
-
 type AlertaProduto = {
   produto: Produto;
   quantidadeDisponivel: number;
@@ -37,254 +41,6 @@ export default function NotificacoesScreen() {
   const {
     produtos,
   } = useAppData();
-
-  function converterData(
-    dataTexto: string
-  ): Date | null {
-    if (!dataTexto) {
-      return null;
-    }
-
-    if (
-      dataTexto.includes('/')
-    ) {
-      const partes =
-        dataTexto.split('/');
-
-      if (
-        partes.length !== 3
-      ) {
-        return null;
-      }
-
-      const dia =
-        Number(
-          partes[0]
-        );
-
-      const mes =
-        Number(
-          partes[1]
-        );
-
-      const ano =
-        Number(
-          partes[2]
-        );
-
-      if (
-        !Number.isFinite(
-          dia
-        ) ||
-        !Number.isFinite(
-          mes
-        ) ||
-        !Number.isFinite(
-          ano
-        )
-      ) {
-        return null;
-      }
-
-      const data =
-        new Date(
-          ano,
-          mes - 1,
-          dia
-        );
-
-      if (
-        data.getFullYear() !==
-          ano ||
-        data.getMonth() !==
-          mes - 1 ||
-        data.getDate() !==
-          dia
-      ) {
-        return null;
-      }
-
-      data.setHours(
-        0,
-        0,
-        0,
-        0
-      );
-
-      return data;
-    }
-
-    if (
-      dataTexto.includes('-')
-    ) {
-      const partes =
-        dataTexto.split('-');
-
-      if (
-        partes.length !== 3
-      ) {
-        return null;
-      }
-
-      const ano =
-        Number(
-          partes[0]
-        );
-
-      const mes =
-        Number(
-          partes[1]
-        );
-
-      const dia =
-        Number(
-          partes[2]
-        );
-
-      if (
-        !Number.isFinite(
-          dia
-        ) ||
-        !Number.isFinite(
-          mes
-        ) ||
-        !Number.isFinite(
-          ano
-        )
-      ) {
-        return null;
-      }
-
-      const data =
-        new Date(
-          ano,
-          mes - 1,
-          dia
-        );
-
-      if (
-        data.getFullYear() !==
-          ano ||
-        data.getMonth() !==
-          mes - 1 ||
-        data.getDate() !==
-          dia
-      ) {
-        return null;
-      }
-
-      data.setHours(
-        0,
-        0,
-        0,
-        0
-      );
-
-      return data;
-    }
-
-    return null;
-  }
-
-  function situacaoVencimento(
-    dataTexto: string | null
-  ): SituacaoVencimento | null {
-    if (!dataTexto) {
-      return null;
-    }
-
-    const vencimento =
-      converterData(
-        dataTexto
-      );
-
-    if (!vencimento) {
-      return null;
-    }
-
-    const hoje =
-      new Date();
-
-    hoje.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    const diferenca =
-      vencimento.getTime() -
-      hoje.getTime();
-
-    const dias =
-      Math.ceil(
-        diferenca /
-          (
-            1000 *
-            60 *
-            60 *
-            24
-          )
-      );
-
-    /*
-      No próprio dia do vencimento
-      o produto ainda é válido.
-
-      A partir do dia seguinte
-      passa a ser vencido.
-    */
-    if (
-      dias < 0
-    ) {
-      return 'vencido';
-    }
-
-    if (
-      dias <= 30
-    ) {
-      return 'proximo';
-    }
-
-    return 'valido';
-  }
-
-  function quantidadeDisponivel(
-    produto: Produto
-  ) {
-    return produto.compras
-      .filter(
-        (compra) =>
-          situacaoVencimento(
-            compra.dataVencimento
-          ) !== 'vencido'
-      )
-      .reduce(
-        (
-          total,
-          compra
-        ) => {
-          const quantidade =
-            Number(
-              compra.quantidade
-            );
-
-          if (
-            !Number.isFinite(
-              quantidade
-            )
-          ) {
-            return total;
-          }
-
-          return (
-            total +
-            quantidade
-          );
-        },
-        0
-      );
-  }
 
   function diasAteVencimento(
     dataTexto: string
@@ -355,6 +111,7 @@ export default function NotificacoesScreen() {
   const alertas:
     AlertaProduto[] =
     produtos
+      .filter((produto) => !produto.removido && comprasVisiveis(produto).length > 0)
       .map(
         (produto) => {
           const disponivel =
@@ -363,8 +120,9 @@ export default function NotificacoesScreen() {
             );
 
           const comprasProximas =
-            produto.compras.filter(
+            comprasVisiveis(produto).filter(
               (compra) =>
+                quantidadeDaCompraDisponivel(compra) > 0 &&
                 situacaoVencimento(
                   compra.dataVencimento
                 ) === 'proximo'
@@ -382,8 +140,9 @@ export default function NotificacoesScreen() {
             válidas do produto.
           */
           const comprasVencidas =
-            produto.compras.filter(
+            comprasVisiveis(produto).filter(
               (compra) =>
+                quantidadeDaCompraDisponivel(compra) > 0 &&
                 situacaoVencimento(
                   compra.dataVencimento
                 ) === 'vencido'
@@ -415,7 +174,7 @@ export default function NotificacoesScreen() {
             */
             estoqueBaixo:
               !produtoVencido &&
-              disponivel <= 2,
+              produtoEstoqueBaixo(produto),
 
             /*
               Se tudo venceu,
@@ -928,7 +687,7 @@ export default function NotificacoesScreen() {
                               {'  •  '}
                               Qtd.{' '}
                               {
-                                compra.quantidade
+                                quantidadeDaCompraDisponivel(compra)
                               }
                             </Text>
                           </View>
@@ -1008,7 +767,7 @@ export default function NotificacoesScreen() {
                               {'  •  '}
                               Qtd.{' '}
                               {
-                                compra.quantidade
+                                quantidadeDaCompraDisponivel(compra)
                               }
                             </Text>
                           </View>

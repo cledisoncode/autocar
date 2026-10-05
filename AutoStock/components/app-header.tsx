@@ -86,14 +86,6 @@ export function AppHeader() {
     });
   }
 
-  function abrirRelatorios() {
-    fecharMenu(() => {
-      router.push(
-        '/relatorios'
-      );
-    });
-  }
-
   function abrirSobre() {
     fecharMenu(() => {
       router.push(
@@ -251,28 +243,7 @@ export function AppHeader() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={
-                styles.menuItem
-              }
-              onPress={
-                abrirRelatorios
-              }
-            >
-              <Ionicons
-                name="bar-chart-outline"
-                size={22}
-                color="#FFFFFF"
-              />
-
-              <Text
-                style={
-                  styles.menuItemTexto
-                }
-              >
-                Relatórios
-              </Text>
-            </TouchableOpacity>
+            
 
             <TouchableOpacity
               style={

@@ -213,18 +213,22 @@ export function cadastrarProdutoApi(
   const formulario = new FormData();
 
   formulario.append('nome', dados.nome);
+
   formulario.append(
     'categoria',
     dados.categoria
   );
+
   formulario.append(
     'quantidade',
     String(dados.quantidade)
   );
+
   formulario.append(
     'valor',
     String(dados.valor)
   );
+
   formulario.append(
     'dataCompra',
     dados.dataCompra
@@ -256,12 +260,14 @@ export function cadastrarProdutoApi(
 
 export function registrarSaidaApi(
   idProduto: number,
+  idCompra: number,
   quantidade: number
 ) {
   return requisicao('/movimentacoes', {
     method: 'POST',
     body: JSON.stringify({
       id_produto: idProduto,
+      id_compra_produto: idCompra,
       tipo: 'SAIDA',
       quantidade,
       observacao:

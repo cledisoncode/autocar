@@ -1,9 +1,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { planejarSaida, quantidadeDisponivel } = require('../src/services/stockMath');
+
+const {
+    planejarSaida,
+    planejarSaidaDaCompra,
+    quantidadeDisponivel
+} = require('../src/services/stockMath');
 
 test('usa quantidade original ao migrar compras antigas', () => {
-    assert.equal(quantidadeDisponivel({ quantidade: '3.500', quantidade_disponivel: null }), 3.5);
+    assert.equal(
+        quantidadeDisponivel({
+            quantidade: '3.500',
+            quantidade_disponivel: null
+        }),
+        3.5
+    );
 });
 
 test('saída consome primeiro o produto que vence antes', () => {
@@ -23,22 +34,72 @@ test('saída consome primeiro o produto que vence antes', () => {
             data_vencimento: '2026-09-01'
         }
     ];
+
     const resultado = planejarSaida(compras, 4);
 
     assert.equal(resultado.restante, 0);
-    assert.equal(resultado.alocacoes[0].compra.id_compra_produto, 2);
+    assert.equal(
+        resultado.alocacoes[0].compra.id_compra_produto,
+        2
+    );
     assert.equal(resultado.alocacoes[0].saldo, 0);
     assert.equal(resultado.alocacoes[1].saldo, 4);
 });
 
 test('informa quanto faltou quando a saída excede o saldo', () => {
-    const resultado = planejarSaida([{
-        id_compra_produto: 1,
-        quantidade: 2,
-        quantidade_disponivel: 2,
-        data_compra: '2026-08-01',
-        data_vencimento: null
-    }], 3);
+    const resultado = planejarSaida(
+        [
+            {
+                id_compra_produto: 1,
+                quantidade: 2,
+                quantidade_disponivel: 2,
+                data_compra: '2026-08-01',
+                data_vencimento: null
+            }
+        ],
+        3
+    );
 
     assert.equal(resultado.restante, 1);
+});
+
+test('saída da compra escolhida altera somente essa compra', () => {
+    const compraSelecionada = {
+        id_compra_produto: 2,
+        quantidade: 10,
+        quantidade_disponivel: 10,
+        data_compra: '2026-09-15',
+        data_vencimento: '2027-09-15'
+    };
+
+    const resultado = planejarSaidaDaCompra(
+        compraSelecionada,
+        2
+    );
+
+    assert.equal(resultado.restante, 0);
+    assert.equal(resultado.alocacoes.length, 1);
+    assert.equal(
+        resultado.alocacoes[0].compra.id_compra_produto,
+        2
+    );
+    assert.equal(resultado.alocacoes[0].retirada, 2);
+    assert.equal(resultado.alocacoes[0].saldo, 8);
+});
+
+test('saída da compra escolhida rejeita quantidade acima do saldo', () => {
+    const resultado = planejarSaidaDaCompra(
+        {
+            id_compra_produto: 3,
+            quantidade: 5,
+            quantidade_disponivel: 3,
+            data_compra: '2026-09-20',
+            data_vencimento: null
+        },
+        4
+    );
+
+    assert.equal(resultado.restante, 1);
+    assert.equal(resultado.alocacoes[0].retirada, 3);
+    assert.equal(resultado.alocacoes[0].saldo, 0);
 });

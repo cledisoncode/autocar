@@ -1,4 +1,12 @@
 import {
+  converterData,
+  produtoEstoqueBaixo,
+  produtoTemProximo,
+  produtoTemVencido,
+  quantidadeDisponivel,
+} from '@/utils/estoque';
+
+import {
   ScrollView,
   StyleSheet,
   Text,
@@ -15,89 +23,11 @@ import {
   useAppData,
 } from '@/contexts/app-data-context';
 
-type SituacaoVencimento =
-  | 'valido'
-  | 'proximo'
-  | 'vencido';
-
 export default function DashboardScreen() {
   const {
     atendimentos,
     produtos,
   } = useAppData();
-
-  function converterData(
-    dataTexto: string
-  ): Date | null {
-    if (!dataTexto) {
-      return null;
-    }
-
-    const partes =
-      dataTexto.split('/');
-
-    if (
-      partes.length !== 3
-    ) {
-      return null;
-    }
-
-    const dia =
-      Number(
-        partes[0]
-      );
-
-    const mes =
-      Number(
-        partes[1]
-      );
-
-    const ano =
-      Number(
-        partes[2]
-      );
-
-    if (
-      !Number.isFinite(
-        dia
-      ) ||
-      !Number.isFinite(
-        mes
-      ) ||
-      !Number.isFinite(
-        ano
-      )
-    ) {
-      return null;
-    }
-
-    const data =
-      new Date(
-        ano,
-        mes - 1,
-        dia
-      );
-
-    if (
-      data.getFullYear() !==
-        ano ||
-      data.getMonth() !==
-        mes - 1 ||
-      data.getDate() !==
-        dia
-    ) {
-      return null;
-    }
-
-    data.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    return data;
-  }
 
   function mesmoDia(
     data1: Date,
@@ -111,62 +41,6 @@ export default function DashboardScreen() {
       data1.getFullYear() ===
         data2.getFullYear()
     );
-  }
-
-  function situacaoVencimento(
-    dataTexto: string | null
-  ): SituacaoVencimento | null {
-    if (!dataTexto) {
-      return null;
-    }
-
-    const vencimento =
-      converterData(
-        dataTexto
-      );
-
-    if (!vencimento) {
-      return null;
-    }
-
-    const hoje =
-      new Date();
-
-    hoje.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    const diferenca =
-      vencimento.getTime() -
-      hoje.getTime();
-
-    const dias =
-      Math.ceil(
-        diferenca /
-          (
-            1000 *
-            60 *
-            60 *
-            24
-          )
-      );
-
-    if (
-      dias < 0
-    ) {
-      return 'vencido';
-    }
-
-    if (
-      dias <= 30
-    ) {
-      return 'proximo';
-    }
-
-    return 'valido';
   }
 
   /*
@@ -193,22 +67,6 @@ export default function DashboardScreen() {
   }
 
   /*
-    Somente compras que ainda
-    aparecem no estoque.
-  */
-  function obterComprasEstoque(
-    produto: Produto
-  ): CompraProduto[] {
-    return obterTodasComprasProduto(
-      produto
-    ).filter(
-      (compra) =>
-        compra.removida !==
-        true
-    );
-  }
-
-  /*
     Produtos que continuam
     ativos no estoque.
   */
@@ -218,121 +76,6 @@ export default function DashboardScreen() {
         produto.removido !==
         true
     );
-
-  /*
-    Quantidade utilizável.
-
-    Compra removida não conta.
-
-    Compra vencida também
-    não entra na quantidade.
-  */
-  function quantidadeDisponivel(
-    produto: Produto
-  ) {
-    return obterComprasEstoque(
-      produto
-    )
-      .filter(
-        (compra) =>
-          situacaoVencimento(
-            compra.dataVencimento
-          ) !== 'vencido'
-      )
-      .reduce(
-        (
-          total,
-          compra
-        ) => {
-          const quantidade =
-            Number(
-              compra.quantidade
-            );
-
-          if (
-            !Number.isFinite(
-              quantidade
-            )
-          ) {
-            return total;
-          }
-
-          return (
-            total +
-            quantidade
-          );
-        },
-        0
-      );
-  }
-
-  function produtoTemProximo(
-    produto: Produto
-  ) {
-    return obterComprasEstoque(
-      produto
-    ).some(
-      (compra) =>
-        situacaoVencimento(
-          compra.dataVencimento
-        ) === 'proximo'
-    );
-  }
-
-  function produtoTemVencido(
-    produto: Produto
-  ) {
-    return obterComprasEstoque(
-      produto
-    ).some(
-      (compra) =>
-        situacaoVencimento(
-          compra.dataVencimento
-        ) === 'vencido'
-    );
-  }
-
-  function produtoTotalmenteVencido(
-    produto: Produto
-  ) {
-    return (
-      produtoTemVencido(
-        produto
-      ) &&
-      quantidadeDisponivel(
-        produto
-      ) === 0
-    );
-  }
-
-  function produtoEstoqueBaixo(
-    produto: Produto
-  ) {
-    const compras =
-      obterComprasEstoque(
-        produto
-      );
-
-    if (
-      compras.length === 0
-    ) {
-      return false;
-    }
-
-    if (
-      produtoTotalmenteVencido(
-        produto
-      )
-    ) {
-      return false;
-    }
-
-    return (
-      quantidadeDisponivel(
-        produto
-      ) <= 2
-    );
-  }
 
   /*
     FINANCEIRO

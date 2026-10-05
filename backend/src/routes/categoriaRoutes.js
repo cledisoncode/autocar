@@ -6,8 +6,8 @@ const {
     buscarCategoria,
     criarCategoria,
     atualizarCategoria,
-    excluirCategoria 
-} = require('../controllers/categoriaController')
+    excluirCategoria,
+} = require('../controllers/categoriaController');
 
 router.get('/', listarCategorias);
 router.get('/:id', buscarCategoria);
