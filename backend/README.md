@@ -38,6 +38,106 @@ Durante o desenvolvimento, `DB_SYNC_ALTER=true` faz o Sequelize adaptar uma base
 criada pela versão anterior. Depois que a estrutura estiver atualizada, ele pode
 ser alterado para `false`.
 
+## Preparar conexão com Supabase
+
+O backend usa Sequelize com conexão PostgreSQL direta; não coloque credenciais do
+banco no aplicativo. No painel do Supabase, abra **Connect** e copie os dados do
+**Session pooler** se o host onde o Node será executado tiver somente IPv4. Para
+um backend persistente com IPv6, a conexão direta é a opção indicada. O pooler de
+sessão usa a porta e o usuário mostrados na própria URI do painel; não presuma
+esses valores.
+
+O banco padrão do projeto Supabase se chama `postgres`, não `autocar`, a menos
+que outro banco tenha sido criado explicitamente. Configure em `backend/.env`:
+
+```env
+DB_HOST=HOST_COPIADO_DO_PAINEL
+DB_PORT=PORTA_COPIADA_DO_PAINEL
+DB_NAME=postgres
+DB_USER=USUARIO_COPIADO_DO_PAINEL
+DB_PASSWORD=SENHA_DO_BANCO
+DB_SSL=true
+DB_SSL_CA=certs/supabase-ca.crt
+DB_SYNC_ALTER=false
+```
+
+Baixe o certificado CA em **Project Settings → Database → SSL Configuration**
+e salve como `backend/certs/supabase-ca.crt`. A pasta `certs` não precisa ser
+versionada; o `.gitignore` exclui o certificado. A aplicação valida o certificado
+TLS e interrompe a inicialização se o caminho não estiver configurado ou se o
+arquivo estiver ausente.
+
+`DB_SYNC_ALTER=false` evita que o servidor altere tabelas existentes ao iniciar.
+O Sequelize ainda cria tabelas ausentes; para migrar dados existentes, confira o
+schema e faça backup antes de iniciar o backend conectado ao projeto Supabase.
+Depois de preencher o `.env` e salvar o certificado, execute `npm run test:models`
+para verificar a conexão antes de iniciar a API.
+
+### Imagens no Supabase Storage
+
+O backend aceita `STORAGE_PROVIDER=local` para desenvolvimento local (padrão) e
+`STORAGE_PROVIDER=supabase` para guardar novas imagens no Storage. No painel do
+Supabase, crie um bucket chamado `product-images` como **público**, pois o app
+precisa exibir as imagens por URL. Restrinja o bucket a imagens JPEG, PNG e WebP
+com limite de 5 MB. O backend envia e remove objetos pelo Storage API. Use uma
+Secret key (`sb_secret_...`) somente no backend; nunca a coloque no aplicativo,
+no Git ou em mensagens. Chaves antigas `service_role` também são aceitas para
+compatibilidade.
+
+Configure no ambiente do backend:
+
+```env
+STORAGE_PROVIDER=supabase
+SUPABASE_URL=https://SEU-PROJETO.supabase.co
+SUPABASE_SECRET_KEY=CHAVE_SECRETA_DO_BACKEND
+SUPABASE_STORAGE_BUCKET=product-images
+```
+
+### Hospedar a API na Render
+
+No [painel da Render](https://dashboard.render.com/), crie **New → Web Service**
+e conecte o repositório Git. Para este repositório, configure:
+
+| Campo | Valor |
+|---|---|
+| Root Directory | `backend` |
+| Runtime | `Node` |
+| Build Command | `npm ci` |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` |
+
+Cadastre as variáveis abaixo em **Environment** na Render. Copie os valores do
+projeto Supabase e nunca publique os valores secretos. O certificado CA pode ser
+colado como conteúdo PEM em `DB_SSL_CA_CONTENT`; deixe `DB_SSL_CA` sem valor na
+Render, pois o arquivo local em `certs/` não é enviado ao Git.
+
+```env
+NODE_ENV=production
+DB_HOST=HOST_DO_SESSION_POOLER
+DB_PORT=PORTA_DO_SESSION_POOLER
+DB_NAME=postgres
+DB_USER=USUARIO_DO_SESSION_POOLER
+DB_PASSWORD=SENHA_DO_POSTGRES_SUPABASE
+DB_SSL=true
+DB_SSL_CA_CONTENT=CONTEUDO_PEM_DO_CERTIFICADO_CA
+DB_SYNC_ALTER=false
+DB_LOGGING=false
+JWT_SECRET=SEGREDO_ALEATORIO_LONGO_E_EXCLUSIVO
+APP_TIMEZONE=America/Belem
+APP_UTC_OFFSET=-03:00
+CORS_ORIGIN=*
+STORAGE_PROVIDER=supabase
+SUPABASE_URL=https://SEU-PROJETO.supabase.co
+SUPABASE_SECRET_KEY=CHAVE_SECRETA_DO_BACKEND
+SUPABASE_STORAGE_BUCKET=product-images
+```
+
+A Render define `PORT` automaticamente. Após o deploy, valide
+`https://NOME-DO-SERVICO.onrender.com/api/health`. O aplicativo móvel deverá
+usar a URL HTTPS da API publicada em sua configuração de endereço; este passo
+fica no projeto frontend. A primeira implantação não transfere imagens que já
+estejam na pasta local `uploads/`.
+
 ## Endereço usado pelo aplicativo
 
 - celular físico com Expo Go: `http://IP_DO_COMPUTADOR:3000/api`;

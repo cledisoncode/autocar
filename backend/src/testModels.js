@@ -5,6 +5,7 @@ const models = require('./models');
 
 async function testarModels() {
     try {
+        sequelize.validarConfiguracaoBanco();
         await sequelize.authenticate();
         console.log('Conexão com o PostgreSQL funcionando.');
         console.log('Models carregados:', Object.keys(models).join(', '));
