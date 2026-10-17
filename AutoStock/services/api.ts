@@ -1,5 +1,14 @@
-const API_URL =
-  process.env.EXPO_PUBLIC_API_URL;
+import { Platform } from 'react-native';
+
+const apiUrlConfigurada =
+  process.env.EXPO_PUBLIC_API_URL?.trim();
+
+const API_URL = (
+  apiUrlConfigurada ||
+  (Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000/api'
+    : 'http://localhost:3000/api')
+).replace(/\/+$/, '');
 
 let tokenAtual: string | null = null;
 
@@ -66,12 +75,6 @@ async function requisicao<T>(
   opcoes: RequestInit = {},
   precisaLogin = true
 ): Promise<T> {
-  if (!API_URL) {
-    throw new Error(
-      'O endereço da API não foi configurado.'
-    );
-  }
-
   const headers: Record<string, string> = {};
 
   if (!(opcoes.body instanceof FormData)) {
