@@ -30,14 +30,20 @@ import {
 } from 'react-native-safe-area-context';
 
 import {
-    useAppData,
-} from '@/contexts/app-data-context';
+  redefinirSenhaApi,
+  solicitarRecuperacaoSenhaApi,
+} from '@/services/api';
 
 export default function RecuperarSenhaScreen() {
   const [
     email,
     setEmail,
   ] = useState('');
+
+  const [codigo, setCodigo] = useState('');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [etapaCodigo, setEtapaCodigo] = useState(false);
+  const [processando, setProcessando] = useState(false);
 
   const [
     tecladoAberto,
@@ -53,10 +59,6 @@ export default function RecuperarSenhaScreen() {
     useRef<ScrollView>(
       null
     );
-
-  const {
-    usuarioCadastrado,
-  } = useAppData();
 
   useEffect(() => {
     const mostrar =
@@ -101,20 +103,7 @@ export default function RecuperarSenhaScreen() {
       .normalize('NFKC');
   }
 
-  function focarEmail() {
-    setTimeout(() => {
-      emailRef.current?.focus();
-
-      setTimeout(() => {
-        scrollRef.current
-          ?.scrollToEnd({
-            animated: true,
-          });
-      }, 100);
-    }, 180);
-  }
-
-  function recuperar() {
+  async function recuperar() {
     const emailDigitado =
       normalizarEmail(
         email
@@ -125,106 +114,71 @@ export default function RecuperarSenhaScreen() {
 
       Alert.alert(
         'Atenção',
-        'Informe o e-mail cadastrado.',
-        [
-          {
-            text: 'OK',
-
-            onPress: () => {
-              focarEmail();
-            },
-          },
-        ],
-        {
-          cancelable: false,
-        }
+        'Informe o e-mail cadastrado.'
       );
 
       return;
     }
 
-    if (!usuarioCadastrado) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDigitado)) {
       Keyboard.dismiss();
-
-      setEmail('');
-
       Alert.alert(
-        'Nenhuma conta cadastrada',
-        'Nenhuma conta de administrador foi encontrada nesta execução do aplicativo. Crie a conta novamente.',
-        [
-          {
-            text: 'OK',
-
-            onPress: () => {
-              router.replace(
-                '/'
-              );
-            },
-          },
-        ],
-        {
-          cancelable: false,
-        }
+        'E-mail inválido',
+        'Informe o mesmo e-mail usado no cadastro.'
       );
-
-      return;
-    }
-
-    const emailCadastrado =
-      normalizarEmail(
-        usuarioCadastrado.email
-      );
-
-    if (
-      emailDigitado !==
-      emailCadastrado
-    ) {
-      Keyboard.dismiss();
-
-      setEmail('');
-
-      Alert.alert(
-        'E-mail não encontrado',
-        'O e-mail informado não corresponde ao e-mail cadastrado. Digite novamente.',
-        [
-          {
-            text: 'OK',
-
-            onPress: () => {
-              focarEmail();
-            },
-          },
-        ],
-        {
-          cancelable: false,
-        }
-      );
-
       return;
     }
 
     Keyboard.dismiss();
+    setProcessando(true);
 
-    Alert.alert(
-      'E-mail confirmado',
-      'O e-mail cadastrado foi encontrado. A recuperação real da senha será implementada posteriormente.',
-      [
-        {
-          text: 'OK',
+    try {
+      await solicitarRecuperacaoSenhaApi(emailDigitado);
+      setEmail(emailDigitado);
+      setEtapaCodigo(true);
+      Alert.alert(
+        'Confira seu e-mail',
+        'Se o endereço estiver cadastrado, você receberá um código de 8 dígitos válido por 10 minutos.'
+      );
+    } catch (erro) {
+      Alert.alert(
+        'Não foi possível enviar o código',
+        erro instanceof Error ? erro.message : 'Tente novamente em alguns instantes.'
+      );
+    } finally {
+      setProcessando(false);
+    }
+  }
 
-          onPress: () => {
-            setEmail('');
+  async function confirmarCodigo() {
+    if (!/^\d{8}$/.test(codigo.trim())) {
+      Alert.alert('Código inválido', 'Digite os 8 números recebidos por e-mail.');
+      return;
+    }
 
-            router.replace(
-              '/'
-            );
-          },
-        },
-      ],
-      {
-        cancelable: false,
-      }
-    );
+    if (novaSenha.length < 6) {
+      Alert.alert('Senha muito curta', 'A nova senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    Keyboard.dismiss();
+    setProcessando(true);
+
+    try {
+      await redefinirSenhaApi(email, codigo.trim(), novaSenha);
+      setCodigo('');
+      setNovaSenha('');
+      Alert.alert('Senha alterada', 'Agora entre usando sua nova senha.', [
+        { text: 'OK', onPress: () => router.replace('/') },
+      ]);
+    } catch (erro) {
+      Alert.alert(
+        'Não foi possível alterar a senha',
+        erro instanceof Error ? erro.message : 'Confira o código e tente novamente.'
+      );
+    } finally {
+      setProcessando(false);
+    }
   }
 
   return (
@@ -340,62 +294,84 @@ export default function RecuperarSenhaScreen() {
               </Text>
             )}
 
-            <TextInput
-              ref={emailRef}
-              style={
-                styles.input
-              }
-              placeholder="E-mail"
-              placeholderTextColor="#777777"
-              value={email}
-              onChangeText={(
-                texto
-              ) => {
-                setEmail(
-                  texto.replace(
-                    /\s/g,
-                    ''
-                  )
-                );
-              }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={
-                false
-              }
-              autoComplete="email"
-              textContentType="emailAddress"
-              returnKeyType="done"
-              onFocus={() => {
-                setTimeout(() => {
-                  scrollRef.current
-                    ?.scrollToEnd({
-                      animated: true,
-                    });
-                }, 100);
-              }}
-              onSubmitEditing={
-                recuperar
-              }
-            />
-
-            <TouchableOpacity
-              style={
-                styles.recuperarButton
-              }
-              onPress={
-                recuperar
-              }
-              activeOpacity={0.8}
-            >
-              <Text
-                style={
-                  styles.recuperarButtonText
-                }
-              >
-                RECUPERAR SENHA
-              </Text>
-            </TouchableOpacity>
+            {!etapaCodigo ? (
+              <>
+                <TextInput
+                  ref={emailRef}
+                  style={styles.input}
+                  placeholder="E-mail"
+                  placeholderTextColor="#777777"
+                  value={email}
+                  onChangeText={(texto) => setEmail(texto.replace(/\s/g, ''))}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  returnKeyType="done"
+                  onFocus={() => {
+                    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+                  }}
+                  onSubmitEditing={recuperar}
+                />
+                <TouchableOpacity
+                  style={[styles.recuperarButton, processando && styles.botaoDesabilitado]}
+                  onPress={recuperar}
+                  disabled={processando}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.recuperarButtonText}>
+                    {processando ? 'ENVIANDO...' : 'ENVIAR CÓDIGO'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.emailSelecionado}>{email}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Código de 8 dígitos"
+                  placeholderTextColor="#777777"
+                  value={codigo}
+                  onChangeText={(texto) => setCodigo(texto.replace(/\D/g, '').slice(0, 8))}
+                  keyboardType="number-pad"
+                  returnKeyType="next"
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nova senha (mínimo 6 caracteres)"
+                  placeholderTextColor="#777777"
+                  value={novaSenha}
+                  onChangeText={setNovaSenha}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onSubmitEditing={confirmarCodigo}
+                />
+                <TouchableOpacity
+                  style={[styles.recuperarButton, processando && styles.botaoDesabilitado]}
+                  onPress={confirmarCodigo}
+                  disabled={processando}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.recuperarButtonText}>
+                    {processando ? 'SALVANDO...' : 'ALTERAR SENHA'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.voltarEtapaButton}
+                  onPress={() => {
+                    setEtapaCodigo(false);
+                    setCodigo('');
+                    setNovaSenha('');
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.voltarEtapaText}>Usar outro e-mail</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
             {tecladoAberto && (
               <Text
@@ -403,7 +379,9 @@ export default function RecuperarSenhaScreen() {
                   styles.dicaTeclado
                 }
               >
-                Confira o e-mail e toque em Recuperar senha.
+                {etapaCodigo
+                  ? 'Digite o código recebido e escolha a nova senha.'
+                  : 'Confira o e-mail e toque em Enviar código.'}
               </Text>
             )}
           </View>
@@ -579,6 +557,8 @@ const styles =
         '#111111',
 
       fontSize: 16,
+
+      marginBottom: 12,
     },
 
     recuperarButton: {
@@ -606,6 +586,28 @@ const styles =
 
       fontWeight:
         '900',
+    },
+
+    botaoDesabilitado: {
+      opacity: 0.65,
+    },
+
+    emailSelecionado: {
+      color: '#BBBBBB',
+      fontSize: 14,
+      textAlign: 'center',
+      marginBottom: 14,
+    },
+
+    voltarEtapaButton: {
+      alignSelf: 'center',
+      padding: 12,
+    },
+
+    voltarEtapaText: {
+      color: '#BBBBBB',
+      fontSize: 14,
+      fontWeight: '600',
     },
 
     dicaTeclado: {

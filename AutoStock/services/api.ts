@@ -176,6 +176,32 @@ export async function entrarUsuarioApi(
   return resposta;
 }
 
+export function solicitarRecuperacaoSenhaApi(email: string) {
+  return requisicao<{ mensagem: string }>(
+    '/auth/solicitar-recuperacao',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    },
+    false
+  );
+}
+
+export function redefinirSenhaApi(
+  email: string,
+  codigo: string,
+  novaSenha: string
+) {
+  return requisicao<{ mensagem: string }>(
+    '/auth/redefinir-senha',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, codigo, novaSenha }),
+    },
+    false
+  );
+}
+
 export function listarAtendimentosApi() {
   return requisicao<AtendimentoApi[]>(
     '/atendimentos'

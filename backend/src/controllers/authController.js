@@ -1,6 +1,38 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Usuario } = require('../models');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+const { Usuario, CodigoRecuperacaoSenha } = require('../models');
+
+const TEMPO_EXPIRACAO_CODIGO_MS = 10 * 60 * 1000;
+const INTERVALO_REENVIO_CODIGO_MS = 60 * 1000;
+const LIMITE_TENTATIVAS_CODIGO = 5;
+
+function criarTransportadorEmail() {
+    const { SMTP_HOST, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
+    const porta = Number(process.env.SMTP_PORT || 587);
+
+    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD || !SMTP_FROM || !Number.isInteger(porta)) {
+        return null;
+    }
+
+    return nodemailer.createTransport({
+        host: SMTP_HOST,
+        port: porta,
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+            user: SMTP_USER,
+            pass: SMTP_PASSWORD
+        }
+    });
+}
+
+function hashCodigoRecuperacao(idUsuario, codigo) {
+    return crypto
+        .createHmac('sha256', process.env.JWT_SECRET)
+        .update(`${idUsuario}:${codigo}`)
+        .digest('hex');
+}
 
 function respostaUsuario(usuario) {
     return {
@@ -150,6 +182,152 @@ async function verificarEmail(req, res) {
     return res.status(200).json({ existe });
 }
 
+async function solicitarRecuperacaoSenha(req, res) {
+    const email = req.body.email?.trim().toLowerCase();
+
+    if (!email || !emailValido(email)) {
+        return res.status(400).json({ erro: 'Informe um e-mail válido.' });
+    }
+
+    const transportador = criarTransportadorEmail();
+    if (!transportador) {
+        return res.status(503).json({
+            erro: 'O envio de e-mail ainda não está configurado no servidor.'
+        });
+    }
+
+    if (!process.env.JWT_SECRET) {
+        return res.status(500).json({ erro: 'Configuração de segurança do servidor ausente.' });
+    }
+
+    try {
+        const usuario = await Usuario.findOne({ where: { email } });
+
+        // A resposta é igual para e-mails cadastrados e não cadastrados.
+        if (!usuario) {
+            return res.status(202).json({
+                mensagem: 'Se o e-mail estiver cadastrado, enviaremos um código de recuperação.'
+            });
+        }
+
+        const codigoExistente = await CodigoRecuperacaoSenha.findOne({
+            where: { id_usuario: usuario.id_usuario }
+        });
+
+        if (codigoExistente && Date.now() - new Date(codigoExistente.criado_em).getTime() < INTERVALO_REENVIO_CODIGO_MS) {
+            return res.status(202).json({
+                mensagem: 'Se o e-mail estiver cadastrado, enviaremos um código de recuperação.'
+            });
+        }
+
+        const codigo = String(crypto.randomInt(10_000_000, 100_000_000));
+        const criadoEm = new Date();
+        const expiraEm = new Date(criadoEm.getTime() + TEMPO_EXPIRACAO_CODIGO_MS);
+        const codigoHash = hashCodigoRecuperacao(usuario.id_usuario, codigo);
+
+        if (codigoExistente) {
+            await codigoExistente.update({
+                codigo_hash: codigoHash,
+                tentativas: 0,
+                criado_em: criadoEm,
+                expira_em: expiraEm
+            });
+        } else {
+            await CodigoRecuperacaoSenha.create({
+                id_usuario: usuario.id_usuario,
+                codigo_hash: codigoHash,
+                tentativas: 0,
+                criado_em: criadoEm,
+                expira_em: expiraEm
+            });
+        }
+
+        try {
+            await transportador.sendMail({
+                from: process.env.SMTP_FROM,
+                to: usuario.email,
+                subject: 'Código para recuperar sua senha AUTOCAR',
+                text: `Seu código de recuperação é ${codigo}. Ele expira em 10 minutos. Se você não solicitou a troca, ignore esta mensagem.`
+            });
+        } catch (errorEmail) {
+            await CodigoRecuperacaoSenha.destroy({
+                where: { id_usuario: usuario.id_usuario }
+            });
+            console.error('Falha ao enviar código de recuperação por e-mail:', errorEmail);
+            return res.status(502).json({ erro: 'Não foi possível enviar o e-mail de recuperação.' });
+        }
+
+        return res.status(202).json({
+            mensagem: 'Se o e-mail estiver cadastrado, enviaremos um código de recuperação.'
+        });
+    } catch (error) {
+        console.error('Erro ao solicitar recuperação de senha:', error);
+        return res.status(500).json({ erro: 'Não foi possível iniciar a recuperação da senha.' });
+    }
+}
+
+async function redefinirSenha(req, res) {
+    const email = req.body.email?.trim().toLowerCase();
+    const codigo = String(req.body.codigo || '').trim();
+    const novaSenha = req.body.novaSenha;
+
+    if (!email || !emailValido(email) || !/^\d{8}$/.test(codigo) || typeof novaSenha !== 'string') {
+        return res.status(400).json({ erro: 'Informe o e-mail, o código de 8 dígitos e a nova senha.' });
+    }
+
+    if (novaSenha.length < 6) {
+        return res.status(400).json({ erro: 'A nova senha deve ter pelo menos 6 caracteres.' });
+    }
+
+    if (!process.env.JWT_SECRET) {
+        return res.status(500).json({ erro: 'Configuração de segurança do servidor ausente.' });
+    }
+
+    try {
+        const usuario = await Usuario.findOne({ where: { email } });
+        const registroCodigo = usuario
+            ? await CodigoRecuperacaoSenha.findOne({ where: { id_usuario: usuario.id_usuario } })
+            : null;
+
+        const codigoInvalido = () => res.status(400).json({
+            erro: 'Código inválido ou expirado. Solicite um novo código e tente novamente.'
+        });
+
+        if (!usuario || !registroCodigo) {
+            return codigoInvalido();
+        }
+
+        if (new Date(registroCodigo.expira_em).getTime() <= Date.now() || registroCodigo.tentativas >= LIMITE_TENTATIVAS_CODIGO) {
+            await registroCodigo.destroy();
+            return codigoInvalido();
+        }
+
+        const hashInformado = Buffer.from(hashCodigoRecuperacao(usuario.id_usuario, codigo), 'hex');
+        const hashArmazenado = Buffer.from(registroCodigo.codigo_hash, 'hex');
+        const codigoConfere = hashInformado.length === hashArmazenado.length &&
+            crypto.timingSafeEqual(hashInformado, hashArmazenado);
+
+        if (!codigoConfere) {
+            const tentativas = registroCodigo.tentativas + 1;
+            if (tentativas >= LIMITE_TENTATIVAS_CODIGO) {
+                await registroCodigo.destroy();
+            } else {
+                await registroCodigo.update({ tentativas });
+            }
+            return codigoInvalido();
+        }
+
+        usuario.senha = await bcrypt.hash(novaSenha, 12);
+        await usuario.save();
+        await registroCodigo.destroy();
+
+        return res.status(200).json({ mensagem: 'Senha alterada com sucesso.' });
+    } catch (error) {
+        console.error('Erro ao redefinir senha:', error);
+        return res.status(500).json({ erro: 'Não foi possível alterar a senha.' });
+    }
+}
+
 async function perfil(req, res) {
     const usuario = await Usuario.findByPk(req.usuario.idUsuario);
 
@@ -164,5 +342,7 @@ module.exports = {
     cadastrar,
     login,
     perfil,
-    verificarEmail
+    verificarEmail,
+    solicitarRecuperacaoSenha,
+    redefinirSenha
 };

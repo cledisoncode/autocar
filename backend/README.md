@@ -16,10 +16,26 @@ e alinha as respostas ao formato usado pelo app Expo/React Native.
 - financeiro de hoje, mês escolhido ou todo o período;
 - criação/atualização das tabelas pelo Sequelize;
 - criação automática das quatro categorias usadas pelo aplicativo.
+- recuperação de senha por código enviado ao e-mail cadastrado, válido por 10 minutos.
 
 ## Instalação
 
 Pré-requisitos: Node.js 18 ou superior e PostgreSQL em execução.
+
+## Recuperação de senha
+
+A recuperação envia um código de uso único para o e-mail cadastrado. Configure no `.env` local e nas variáveis do serviço Render:
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=seu-email@gmail.com
+SMTP_PASSWORD=senha-de-aplicativo-do-provedor
+SMTP_FROM=AUTOCAR <seu-email@gmail.com>
+```
+
+Use uma credencial própria para SMTP, como senha de aplicativo quando o provedor exigir; não use nem publique a senha normal da conta. Sem essas configurações, a API informa que o envio ainda não está configurado. A tabela `codigos_recuperacao_senha` é criada pelo Sequelize junto das demais tabelas.
 
 1. Crie no PostgreSQL um banco vazio chamado `autocar`.
 2. Copie `.env.example` para `.env`.
