@@ -12,7 +12,7 @@ function criarTransportadorEmail() {
     const { SMTP_HOST, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
     const porta = Number(process.env.SMTP_PORT || 587);
 
-    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD || !SMTP_FROM || !Number.isInteger(porta)) {
+    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD || !SMTP_FROM || !Number.isInteger(porta) || porta < 1 || porta > 65535) {
         return null;
     }
 
@@ -168,7 +168,7 @@ async function login(req, res) {
 }
 
 async function verificarEmail(req, res) {
-    const email = req.body.email?.trim().toLowerCase();
+    const email = req.body?.email?.trim().toLowerCase();
 
     if (!email || !emailValido(email)) {
         return res.status(400).json({ erro: 'E-mail inválido.' });
@@ -183,7 +183,7 @@ async function verificarEmail(req, res) {
 }
 
 async function solicitarRecuperacaoSenha(req, res) {
-    const email = req.body.email?.trim().toLowerCase();
+    const email = req.body?.email?.trim().toLowerCase();
 
     if (!email || !emailValido(email)) {
         return res.status(400).json({ erro: 'Informe um e-mail válido.' });
@@ -267,9 +267,9 @@ async function solicitarRecuperacaoSenha(req, res) {
 }
 
 async function redefinirSenha(req, res) {
-    const email = req.body.email?.trim().toLowerCase();
-    const codigo = String(req.body.codigo || '').trim();
-    const novaSenha = req.body.novaSenha;
+    const email = req.body?.email?.trim().toLowerCase();
+    const codigo = String(req.body?.codigo || '').trim();
+    const novaSenha = req.body?.novaSenha;
 
     if (!email || !emailValido(email) || !/^\d{8}$/.test(codigo) || typeof novaSenha !== 'string') {
         return res.status(400).json({ erro: 'Informe o e-mail, o código de 8 dígitos e a nova senha.' });
