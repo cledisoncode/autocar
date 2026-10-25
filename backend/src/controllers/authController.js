@@ -8,6 +8,10 @@ const TEMPO_EXPIRACAO_CODIGO_MS = 10 * 60 * 1000;
 const INTERVALO_REENVIO_CODIGO_MS = 60 * 1000;
 const LIMITE_TENTATIVAS_CODIGO = 5;
 
+function provedorEmailConfigurado() {
+    return String(process.env.EMAIL_PROVIDER || 'smtp').trim().toLowerCase();
+}
+
 function criarTransportadorEmail() {
     const { SMTP_HOST, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
     const porta = Number(process.env.SMTP_PORT || 587);
@@ -24,6 +28,61 @@ function criarTransportadorEmail() {
             user: SMTP_USER,
             pass: SMTP_PASSWORD
         }
+    });
+}
+
+function emailEstaConfigurado() {
+    const provedor = provedorEmailConfigurado();
+
+    if (provedor === 'brevo') {
+        return Boolean(process.env.BREVO_API_KEY?.trim() && process.env.BREVO_FROM_EMAIL?.trim());
+    }
+
+    if (provedor === 'smtp') {
+        return Boolean(criarTransportadorEmail());
+    }
+
+    return false;
+}
+
+async function enviarEmailRecuperacao({ para, assunto, texto }) {
+    if (provedorEmailConfigurado() === 'brevo') {
+        const resposta = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                accept: 'application/json',
+                'api-key': process.env.BREVO_API_KEY,
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+                sender: {
+                    name: process.env.BREVO_FROM_NAME?.trim() || 'AUTOCAR',
+                    email: process.env.BREVO_FROM_EMAIL.trim()
+                },
+                to: [{ email: para }],
+                subject: assunto,
+                textContent: texto
+            })
+        });
+
+        if (!resposta.ok) {
+            const detalhe = (await resposta.text()).slice(0, 500);
+            throw new Error(`Brevo respondeu HTTP ${resposta.status}${detalhe ? `: ${detalhe}` : '.'}`);
+        }
+
+        return;
+    }
+
+    const transportador = criarTransportadorEmail();
+    if (!transportador) {
+        throw new Error('Configuração SMTP ausente ou inválida.');
+    }
+
+    await transportador.sendMail({
+        from: process.env.SMTP_FROM,
+        to: para,
+        subject: assunto,
+        text: texto
     });
 }
 
@@ -189,10 +248,9 @@ async function solicitarRecuperacaoSenha(req, res) {
         return res.status(400).json({ erro: 'Informe um e-mail válido.' });
     }
 
-    const transportador = criarTransportadorEmail();
-    if (!transportador) {
+    if (!emailEstaConfigurado()) {
         return res.status(503).json({
-            erro: 'O envio de e-mail ainda não está configurado no servidor.'
+            erro: 'Configure EMAIL_PROVIDER e as credenciais do provedor de e-mail no servidor.'
         });
     }
 
@@ -243,11 +301,10 @@ async function solicitarRecuperacaoSenha(req, res) {
         }
 
         try {
-            await transportador.sendMail({
-                from: process.env.SMTP_FROM,
-                to: usuario.email,
-                subject: 'Código para recuperar sua senha AUTOCAR',
-                text: `Seu código de recuperação é ${codigo}. Ele expira em 10 minutos. Se você não solicitou a troca, ignore esta mensagem.`
+            await enviarEmailRecuperacao({
+                para: usuario.email,
+                assunto: 'Código para recuperar sua senha AUTOCAR',
+                texto: `Seu código de recuperação é ${codigo}. Ele expira em 10 minutos. Se você não solicitou a troca, ignore esta mensagem.`
             });
         } catch (errorEmail) {
             await CodigoRecuperacaoSenha.destroy({

@@ -24,7 +24,7 @@ Pré-requisitos: Node.js 18 ou superior e PostgreSQL em execução.
 
 ## Recuperação de senha
 
-A recuperação envia um código de uso único para o e-mail cadastrado. Configure no `.env` local e nas variáveis do serviço Render:
+A recuperação envia um código de uso único para o e-mail cadastrado. Em desenvolvimento local, o backend aceita SMTP:
 
 ```dotenv
 SMTP_HOST=smtp.gmail.com
@@ -35,7 +35,16 @@ SMTP_PASSWORD=senha-de-aplicativo-do-provedor
 SMTP_FROM=AUTOCAR <seu-email@gmail.com>
 ```
 
-Use uma credencial própria para SMTP, como senha de aplicativo quando o provedor exigir; não use nem publique a senha normal da conta. Sem essas configurações, a API informa que o envio ainda não está configurado. A tabela `codigos_recuperacao_senha` é criada pelo Sequelize junto das demais tabelas.
+Para usar o Brevo por API HTTPS (recomendado na Render gratuita, que bloqueia conexões SMTP de saída nas portas 25, 465 e 587), configure no ambiente do backend:
+
+```dotenv
+EMAIL_PROVIDER=brevo
+BREVO_API_KEY=CHAVE_DA_API_DO_BREVO
+BREVO_FROM_EMAIL=REMETENTE_VERIFICADO_NO_BREVO
+BREVO_FROM_NAME=AUTOCAR
+```
+
+No Brevo, habilite o envio transacional e cadastre/verifique o remetente. Se enviar usando um endereço Gmail sem autenticar um domínio próprio, o Brevo pode substituir o endereço exibido do remetente. Guarde a chave de API apenas nas variáveis de ambiente; não a publique no Git ou no aplicativo. Sem as configurações do provedor escolhido, a API informa que o envio não está configurado. A tabela `codigos_recuperacao_senha` é criada pelo Sequelize junto das demais tabelas.
 
 1. Crie no PostgreSQL um banco vazio chamado `autocar`.
 2. Copie `.env.example` para `.env`.
