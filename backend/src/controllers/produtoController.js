@@ -1,7 +1,10 @@
-const fs = require('fs');
-const path = require('path');
 const { Op } = require('sequelize');
 const sequelize = require('../config/db');
+const {
+    descartarArquivoRecebido,
+    excluirImagem,
+    salvarImagem
+} = require('../services/imageStorage');
 const {
     Categoria,
     CompraProduto,
@@ -21,21 +24,25 @@ function erroHttp(status, mensagem) {
     return error;
 }
 
-function caminhoFisicoImagem(caminhoImagem) {
-    if (!caminhoImagem || !String(caminhoImagem).startsWith('/uploads/')) {
-        return null;
+async function descartarUploadDaRequisicao(req, referenciaImagem = null) {
+    if (referenciaImagem) {
+        try {
+            await excluirImagem(referenciaImagem);
+        } catch (error) {
+            console.error('Não foi possível limpar a imagem enviada:', error.message);
+        }
+        return;
     }
-
-    return path.join(__dirname, '../..', String(caminhoImagem).replace(/^\//, ''));
+    await descartarArquivoRecebido(req.file);
 }
 
-function excluirImagem(caminhoImagem) {
-    const caminho = caminhoFisicoImagem(caminhoImagem);
-    if (caminho && fs.existsSync(caminho)) fs.unlinkSync(caminho);
-}
-
-function excluirUploadDaRequisicao(req) {
-    if (req.file) excluirImagem(`/uploads/img_produtos/${req.file.filename}`);
+async function limparImagemAntiga(referenciaImagem) {
+    if (!referenciaImagem) return;
+    try {
+        await excluirImagem(referenciaImagem);
+    } catch (error) {
+        console.error('Não foi possível remover a imagem substituída:', error.message);
+    }
 }
 
 function urlImagem(req, imagem) {
@@ -72,6 +79,7 @@ function produtoParaApp(req, produto) {
 async function criarCompraProduto(req, res) {
     let transaction;
     let imagemAntiga = null;
+    let imagemNova = null;
 
     try {
         transaction = await sequelize.transaction();
@@ -119,9 +127,7 @@ async function criarCompraProduto(req, res) {
             throw erroHttp(404, 'Categoria não encontrada. Consulte GET /api/categorias.');
         }
 
-        const novaImagem = req.file
-            ? `/uploads/img_produtos/${req.file.filename}`
-            : null;
+        imagemNova = await salvarImagem(req.file);
         let produto = await Produto.findOne({
             where: {
                 nome: { [Op.iLike]: nome },
@@ -135,7 +141,7 @@ async function criarCompraProduto(req, res) {
         if (!produto) {
             produto = await Produto.create({
                 nome,
-                imagem: novaImagem,
+                imagem: imagemNova,
                 id_categoria: categoriaEncontrada.id_categoria,
                 quantidade_minima: 2,
                 custo: valor / quantidade,
@@ -149,9 +155,9 @@ async function criarCompraProduto(req, res) {
                 data_compra: dataCompraNormalizada,
                 data_vencimento: dataVencimentoNormalizada
             };
-            if (novaImagem) {
+            if (imagemNova) {
                 imagemAntiga = produto.imagem;
-                atualizacoes.imagem = novaImagem;
+                atualizacoes.imagem = imagemNova;
             }
             await produto.update(atualizacoes, { transaction });
         }
@@ -176,7 +182,7 @@ async function criarCompraProduto(req, res) {
         }, { transaction });
 
         await transaction.commit();
-        if (imagemAntiga) excluirImagem(imagemAntiga);
+        await limparImagemAntiga(imagemAntiga);
 
         produto.setDataValue('categoria', categoriaEncontrada);
         produto.setDataValue('compras', [compra]);
@@ -186,7 +192,7 @@ async function criarCompraProduto(req, res) {
         });
     } catch (error) {
         if (transaction && !transaction.finished) await transaction.rollback();
-        excluirUploadDaRequisicao(req);
+        await descartarUploadDaRequisicao(req, imagemNova);
         console.error('Erro ao registrar compra de produto:', error);
         return res.status(error.status || 500).json({
             erro: error.status ? error.message : 'Erro interno do servidor.'
@@ -271,6 +277,7 @@ async function buscarProduto(req, res) {
 }
 
 async function criarProduto(req, res) {
+    let imagemNova = null;
     try {
         const idCategoria = Number(req.body.id_categoria);
         const categoria = Number.isInteger(idCategoria)
@@ -280,7 +287,7 @@ async function criarProduto(req, res) {
         const custo = numeroDecimal(req.body.custo);
 
         if (!nome || !categoria || !Number.isFinite(custo) || custo < 0) {
-            excluirUploadDaRequisicao(req);
+            await descartarUploadDaRequisicao(req);
             return res.status(400).json({
                 erro: 'Informe nome, id_categoria existente e custo válido.'
             });
@@ -290,13 +297,14 @@ async function criarProduto(req, res) {
             ? 2
             : numeroDecimal(req.body.quantidade_minima);
         if (!Number.isFinite(quantidadeMinima) || quantidadeMinima < 0) {
-            excluirUploadDaRequisicao(req);
+            await descartarUploadDaRequisicao(req);
             return res.status(400).json({ erro: 'quantidade_minima inválida.' });
         }
 
+        imagemNova = await salvarImagem(req.file);
         const produto = await Produto.create({
             nome,
-            imagem: req.file ? `/uploads/img_produtos/${req.file.filename}` : null,
+            imagem: imagemNova,
             id_categoria: idCategoria,
             quantidade_minima: quantidadeMinima,
             custo,
@@ -305,17 +313,18 @@ async function criarProduto(req, res) {
         });
         return res.status(201).json(produto);
     } catch (error) {
-        excluirUploadDaRequisicao(req);
+        await descartarUploadDaRequisicao(req, imagemNova);
         console.error('Erro ao criar produto no catálogo:', error);
         return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }
 }
 
 async function atualizarProduto(req, res) {
+    let imagemNova = null;
     try {
         const produto = await Produto.findByPk(req.params.id);
         if (!produto) {
-            excluirUploadDaRequisicao(req);
+            await descartarUploadDaRequisicao(req);
             return res.status(404).json({ erro: 'Produto não encontrado.' });
         }
 
@@ -327,14 +336,15 @@ async function atualizarProduto(req, res) {
 
         if (!nome || !categoria || !Number.isFinite(custo) || custo < 0 ||
             !Number.isFinite(quantidadeMinima) || quantidadeMinima < 0) {
-            excluirUploadDaRequisicao(req);
+            await descartarUploadDaRequisicao(req);
             return res.status(400).json({ erro: 'Dados do produto inválidos.' });
         }
 
         const imagemAntiga = produto.imagem;
+        imagemNova = await salvarImagem(req.file);
         await produto.update({
             nome,
-            imagem: req.file ? `/uploads/img_produtos/${req.file.filename}` : imagemAntiga,
+            imagem: imagemNova || imagemAntiga,
             id_categoria: idCategoria,
             quantidade_minima: quantidadeMinima,
             custo,
@@ -342,10 +352,10 @@ async function atualizarProduto(req, res) {
             data_vencimento: normalizarData(req.body.data_vencimento)
         });
 
-        if (req.file && imagemAntiga) excluirImagem(imagemAntiga);
+        if (imagemNova && imagemAntiga) await limparImagemAntiga(imagemAntiga);
         return res.status(200).json(produto);
     } catch (error) {
-        excluirUploadDaRequisicao(req);
+        await descartarUploadDaRequisicao(req, imagemNova);
         console.error('Erro ao atualizar produto:', error);
         return res.status(500).json({ erro: 'Erro interno do servidor.' });
     }

@@ -5,12 +5,16 @@ const {
     cadastrar,
     login,
     perfil,
-    verificarEmail
+    verificarEmail,
+    solicitarRecuperacaoSenha,
+    redefinirSenha
 } = require('../controllers/authController');
 
 router.post('/cadastro', cadastrar);
 router.post('/login', login);
 router.post('/verificar-email', verificarEmail);
+router.post('/solicitar-recuperacao', solicitarRecuperacaoSenha);
+router.post('/redefinir-senha', redefinirSenha);
 router.get('/me', autenticar, perfil);
 
 module.exports = router;

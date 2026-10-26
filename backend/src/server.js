@@ -4,11 +4,14 @@ const app = require('./app');
 const sequelize = require('./config/db');
 require('./models');
 const { garantirDadosIniciais } = require('./services/seedService');
+const { validarConfiguracaoStorage } = require('./services/imageStorage');
 
 const PORT = process.env.PORT || 3000;
 
 async function startServer(){
     try{
+        validarConfiguracaoStorage();
+        sequelize.validarConfiguracaoBanco();
         await sequelize.authenticate();
         console.log('PostgreSQL conectado com sucesso.');
 

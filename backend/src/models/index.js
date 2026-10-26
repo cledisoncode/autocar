@@ -1,10 +1,22 @@
 const Usuario = require('./Usuario');
+const CodigoRecuperacaoSenha = require('./CodigoRecuperacaoSenha');
 const Categoria = require('./Categoria');
 const TipoServico = require('./TipoServico');
 const Produto = require('./Produto');
 const CompraProduto = require('./CompraProduto');
 const MovimentacaoEstoque = require('./MovimentacaoEstoque');
 const Servico = require('./Servico');
+
+Usuario.hasOne(CodigoRecuperacaoSenha, {
+    foreignKey: 'id_usuario',
+    as: 'codigoRecuperacao',
+    onDelete: 'CASCADE'
+});
+
+CodigoRecuperacaoSenha.belongsTo(Usuario, {
+    foreignKey: 'id_usuario',
+    as: 'usuario'
+});
 
 
 // CATEGORIA => PRODUTO
@@ -90,6 +102,7 @@ Servico.belongsTo(TipoServico, {
 
 module.exports = {
     Usuario,
+    CodigoRecuperacaoSenha,
     Categoria,
     TipoServico,
     Produto,

@@ -8,7 +8,7 @@ fs.mkdirSync(uploadDir, {
     recursive: true
 });
 
-const storage = multer.diskStorage({
+const storageLocal = multer.diskStorage({
 
     destination: (req, file, cb) => {
         cb(null, uploadDir);
@@ -29,6 +29,8 @@ const storage = multer.diskStorage({
 
 });
 
+const storageSupabase = multer.memoryStorage();
+
 const fileFilter = (req, file, cb) => {
 
     const tiposPermitidos = [
@@ -45,7 +47,9 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-    storage,
+    storage: process.env.STORAGE_PROVIDER === 'supabase'
+        ? storageSupabase
+        : storageLocal,
     fileFilter,
 
     limits: {
