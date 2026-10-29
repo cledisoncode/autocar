@@ -1,9 +1,16 @@
+import { useFonts } from 'expo-font';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ErroApi, prepararConexaoApi } from '@/services/api';
+import { AvisoDeEspera } from '@/components/aviso-de-espera';
+import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+
 import {
   Ionicons,
 } from '@expo/vector-icons';
 
 import {
   router,
+  Redirect,
 } from 'expo-router';
 
 import {
@@ -13,12 +20,11 @@ import {
 } from 'react';
 
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -33,6 +39,13 @@ import {
 
 
 export default function LoginScreen() {
+  const [fonteSenhaCarregada, erroFonteSenha] = useFonts({
+    AutocarSenhaOculta: require('@/assets/fonts/autocar-senha-oculta.ttf'),
+  });
+  const fonteSenhaVisivel = Platform.OS === 'ios' ? 'System' : 'sans-serif';
+
+  const [entrando, setEntrando] = useState(false);
+  const entrandoRef = useRef(false);
   const [
     email,
     setEmail,
@@ -71,9 +84,12 @@ export default function LoginScreen() {
   const {
     usuarioCadastrado,
     entrarUsuario,
+    usuarioLogado,
+    restaurandoSessao,
   } = useAppData();
 
   useEffect(() => {
+    void prepararConexaoApi();
     const mostrar =
       Keyboard.addListener(
         'keyboardDidShow',
@@ -102,6 +118,7 @@ export default function LoginScreen() {
   }, []);
 
   async function entrar() {
+    if (entrandoRef.current) return;
     Keyboard.dismiss();
 
     if (
@@ -121,6 +138,15 @@ export default function LoginScreen() {
         ]
       );
 
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      Alert.alert(
+        'Atenção',
+        'Informe um e-mail válido.',
+        [{ text: 'OK', onPress: () => emailRef.current?.focus() }]
+      );
       return;
     }
 
@@ -145,6 +171,8 @@ export default function LoginScreen() {
     }
 
     let loginCorreto = false;
+    entrandoRef.current = true;
+    setEntrando(true);
 
     try {
       loginCorreto =
@@ -153,7 +181,8 @@ export default function LoginScreen() {
           senha
         );
     } catch (erro) {
-      setSenha('');
+      const credenciaisIncorretas = erro instanceof ErroApi && erro.status === 401;
+      if (credenciaisIncorretas) setSenha('');
 
       setMostrarSenha(
         false
@@ -169,18 +198,16 @@ export default function LoginScreen() {
             text: 'OK',
 
             onPress: () => {
-              setTimeout(
-                () => {
-                  senhaRef.current?.focus();
-                },
-                150
-              );
+              if (credenciaisIncorretas) senhaRef.current?.focus();
             },
           },
         ]
       );
 
       return;
+    } finally {
+      entrandoRef.current = false;
+      setEntrando(false);
     }
 
     if (
@@ -241,7 +268,12 @@ export default function LoginScreen() {
     );
   }
 
+  function prepararTecladoLogin() {
+    if (Platform.OS === 'android') setTecladoAberto(true);
+  }
+
   function alternarSenha() {
+    prepararTecladoLogin();
     setMostrarSenha(
       (valorAtual) =>
         !valorAtual
@@ -254,25 +286,15 @@ export default function LoginScreen() {
     );
   }
 
+  if (erroFonteSenha) throw erroFonteSenha;
+
+  if (restaurandoSessao) return <View style={{ flex: 1, backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color="#E53935" size="large" /></View>;
+  if (usuarioLogado && !entrando) return <Redirect href="/(tabs)/dashboard" />;
+
   return (
-    <KeyboardAvoidingView
-      style={
-        styles.container
-      }
-      behavior={
-        Platform.OS ===
-        'ios'
-          ? 'padding'
-          : 'height'
-      }
-      keyboardVerticalOffset={
-        Platform.OS ===
-        'ios'
-          ? 20
-          : 0
-      }
-    >
-      <ScrollView
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView style={styles.scroll} behavior="height" enabled={Platform.OS === 'android'}>
+      <KeyboardAwareScrollView bottomOffset={28} extraKeyboardSpace={24} enabled={Platform.OS !== 'android'}
         style={
           styles.scroll
         }
@@ -307,11 +329,15 @@ export default function LoginScreen() {
           />
 
           <TextInput
+            caretHidden={false}
+              editable={!entrando}
             ref={emailRef}
             style={
               styles.input
             }
             placeholder="E-mail"
+            onFocus={prepararTecladoLogin}
+            onPressIn={prepararTecladoLogin}
             placeholderTextColor="#777777"
             value={email}
             onChangeText={
@@ -338,23 +364,29 @@ export default function LoginScreen() {
             ]}
           >
             <TextInput
+              caretHidden={false}
+              editable={!entrando && fonteSenhaCarregada}
               ref={senhaRef}
-              style={
-                styles.senhaInputReal
-              }
+              style={[
+                styles.senhaInputReal,
+                { fontFamily: fonteSenhaCarregada && !mostrarSenha ? 'AutocarSenhaOculta' : fonteSenhaVisivel },
+              ]}
               value={senha}
               onChangeText={
                 setSenha
               }
-              secureTextEntry
+              secureTextEntry={!mostrarSenha}
+              placeholder="Senha"
+              placeholderTextColor={mostrarSenha ? '#777777' : 'transparent'}
+              accessibilityLabel="Senha"
               autoCapitalize="none"
               autoCorrect={
                 false
               }
               returnKeyType="done"
-              caretHidden
-              selectionColor="transparent"
+              onPressIn={prepararTecladoLogin}
               onFocus={() => {
+                prepararTecladoLogin();
                 setSenhaFocada(
                   true
                 );
@@ -364,40 +396,20 @@ export default function LoginScreen() {
                   false
                 );
               }}
-              onSubmitEditing={
-                entrar
-              }
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
+            {!mostrarSenha && !senha && (
+              <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.senhaPlaceholderArea}>
+                <Text style={styles.senhaPlaceholderTexto}>Senha</Text>
+              </View>
+            )}
 
-            <View
-              pointerEvents="none"
-              style={
-                styles.senhaTextoArea
-              }
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.senhaTexto,
-
-                  !senha &&
-                    styles.placeholder,
-                ]}
-              >
-                {senha
-                  ? mostrarSenha
-                    ? senha
-                    : '*'.repeat(
-                        senha.length
-                      )
-                  : 'Senha'}
-              </Text>
-            </View>
 
             <TouchableOpacity
               style={
                 styles.olhoButton
               }
+              disabled={entrando}
               onPress={
                 alternarSenha
               }
@@ -419,24 +431,29 @@ export default function LoginScreen() {
             style={
               styles.entrarButton
             }
+            disabled={entrando}
+            accessibilityState={{ busy: entrando, disabled: entrando }}
             onPress={
               entrar
             }
             activeOpacity={0.8}
           >
+            {entrando && <ActivityIndicator color="#FFFFFF" style={{ marginBottom: 4 }} />}
             <Text
               style={
                 styles.entrarButtonText
               }
             >
-              ENTRAR
+              {entrando ? 'ENTRANDO...' : 'ENTRAR'}
             </Text>
           </TouchableOpacity>
+          <AvisoDeEspera ativo={entrando} />
 
           <TouchableOpacity
             style={
               styles.linkButton
             }
+            disabled={entrando}
             onPress={() => {
               Keyboard.dismiss();
 
@@ -450,7 +467,7 @@ export default function LoginScreen() {
                 styles.linkText
               }
             >
-              Esqueci minha senha
+              Redefinir Senha
             </Text>
           </TouchableOpacity>
 
@@ -459,6 +476,7 @@ export default function LoginScreen() {
               style={
                 styles.criarContaButton
               }
+              disabled={entrando}
               onPress={() => {
                 Keyboard.dismiss();
 
@@ -485,8 +503,9 @@ export default function LoginScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -627,7 +646,7 @@ const styles =
       paddingHorizontal: 16,
 
       color:
-        'transparent',
+        '#111111',
 
       backgroundColor:
         'transparent',
@@ -637,35 +656,11 @@ const styles =
       zIndex: 2,
     },
 
-    senhaTextoArea: {
-      position:
-        'absolute',
-
-      left: 16,
-
-      right: 52,
-
-      top: 0,
-
-      bottom: 0,
-
-      justifyContent:
-        'center',
-
-      zIndex: 1,
+    senhaPlaceholderArea: {
+      position: 'absolute', left: 16, right: 52, top: 0, bottom: 0,
+      justifyContent: 'center', zIndex: 1,
     },
-
-    senhaTexto: {
-      color:
-        '#111111',
-
-      fontSize: 16,
-    },
-
-    placeholder: {
-      color:
-        '#777777',
-    },
+    senhaPlaceholderTexto: { color: '#777777', fontSize: 16 },
 
     olhoButton: {
       width: 50,

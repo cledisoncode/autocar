@@ -1,3 +1,7 @@
+import { useFonts } from 'expo-font';
+import { AvisoDeEspera } from '@/components/aviso-de-espera';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+
 import {
   Ionicons,
 } from '@expo/vector-icons';
@@ -13,12 +17,11 @@ import {
 } from 'react';
 
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +38,13 @@ import {
 } from '@/contexts/app-data-context';
 
 export default function CadastroScreen() {
+  const [fonteSenhaCarregada, erroFonteSenha] = useFonts({
+    AutocarSenhaOculta: require('@/assets/fonts/autocar-senha-oculta.ttf'),
+  });
+  const fonteSenhaVisivel = Platform.OS === 'ios' ? 'System' : 'sans-serif';
+
+  const [cadastrando, setCadastrando] = useState(false);
+  const cadastrandoRef = useRef(false);
   const [
     nome,
     setNome,
@@ -83,11 +93,6 @@ export default function CadastroScreen() {
   const cadastroConcluidoRef =
     useRef(false);
 
-  const scrollRef =
-    useRef<ScrollView>(
-      null
-    );
-
   const nomeRef =
     useRef<TextInput>(
       null
@@ -134,20 +139,13 @@ export default function CadastroScreen() {
   function emailValido(
     texto: string
   ) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-      texto.trim()
-    );
-  }
-
-  function rolarParaBaixo() {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({
-        animated: true,
-      });
-    }, 180);
+    const emailNormalizado = texto.trim();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalizado) &&
+      !/\.comm+$/i.test(emailNormalizado);
   }
 
   async function cadastrar() {
+    if (cadastrandoRef.current) return;
     if (
       !nome.trim() ||
       !sobrenome.trim() ||
@@ -219,8 +217,6 @@ export default function CadastroScreen() {
               setTimeout(
                 () => {
                   senhaRef.current?.focus();
-
-                  rolarParaBaixo();
                 },
                 150
               );
@@ -236,6 +232,9 @@ export default function CadastroScreen() {
       true;
 
     let cadastrado = false;
+    cadastrandoRef.current = true;
+    setCadastrando(true);
+    Keyboard.dismiss();
 
     try {
       cadastrado =
@@ -257,6 +256,9 @@ export default function CadastroScreen() {
       );
 
       return;
+    } finally {
+      cadastrandoRef.current = false;
+      setCadastrando(false);
     }
 
     if (!cadastrado) {
@@ -348,6 +350,8 @@ export default function CadastroScreen() {
     );
   }
 
+  if (erroFonteSenha) throw erroFonteSenha;
+
   return (
     <SafeAreaView
       style={
@@ -359,22 +363,8 @@ export default function CadastroScreen() {
         'right',
       ]}
     >
-      <KeyboardAvoidingView
-        style={
-          styles.container
-        }
-        behavior={
-          Platform.OS ===
-          'ios'
-            ? 'padding'
-            : undefined
-        }
-        keyboardVerticalOffset={
-          0
-        }
-      >
-        <ScrollView
-          ref={scrollRef}
+      <View style={styles.container}>
+        <KeyboardAwareScrollView bottomOffset={28} extraKeyboardSpace={24}
           style={
             styles.scroll
           }
@@ -391,6 +381,7 @@ export default function CadastroScreen() {
             style={
               styles.voltarButton
             }
+            disabled={cadastrando}
             onPress={() => {
               Keyboard.dismiss();
 
@@ -439,6 +430,8 @@ export default function CadastroScreen() {
           />
 
           <TextInput
+            caretHidden={false}
+              editable={!cadastrando}
             ref={nomeRef}
             style={
               styles.input
@@ -458,6 +451,8 @@ export default function CadastroScreen() {
           />
 
           <TextInput
+            caretHidden={false}
+              editable={!cadastrando}
             ref={
               sobrenomeRef
             }
@@ -481,6 +476,8 @@ export default function CadastroScreen() {
           />
 
           <TextInput
+            caretHidden={false}
+              editable={!cadastrando}
             ref={emailRef}
             style={
               styles.input
@@ -500,8 +497,6 @@ export default function CadastroScreen() {
             submitBehavior="submit"
             onSubmitEditing={() => {
               senhaRef.current?.focus();
-
-              rolarParaBaixo();
             }}
           />
 
@@ -514,29 +509,31 @@ export default function CadastroScreen() {
             ]}
           >
             <TextInput
+              caretHidden={false}
+              editable={!cadastrando && fonteSenhaCarregada}
               ref={senhaRef}
-              style={
-                styles.senhaInputReal
-              }
+              style={[
+                styles.senhaInputReal,
+                { fontFamily: fonteSenhaCarregada && !mostrarSenha ? 'AutocarSenhaOculta' : fonteSenhaVisivel },
+              ]}
               value={senha}
               onChangeText={
                 setSenha
               }
-              secureTextEntry
+              secureTextEntry={!mostrarSenha}
+              placeholder="Senha"
+              placeholderTextColor={mostrarSenha ? '#777777' : 'transparent'}
+              accessibilityLabel="Senha"
               autoCapitalize="none"
               autoCorrect={
                 false
               }
               returnKeyType="next"
               submitBehavior="submit"
-              caretHidden
-              selectionColor="transparent"
               onFocus={() => {
                 setSenhaFocada(
                   true
                 );
-
-                rolarParaBaixo();
               }}
               onBlur={() => {
                 setSenhaFocada(
@@ -545,35 +542,14 @@ export default function CadastroScreen() {
               }}
               onSubmitEditing={() => {
                 repetirSenhaRef.current?.focus();
-
-                rolarParaBaixo();
               }}
             />
+            {!mostrarSenha && !senha && (
+              <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.senhaPlaceholderArea}>
+                <Text style={styles.senhaPlaceholderTexto}>Senha</Text>
+              </View>
+            )}
 
-            <View
-              pointerEvents="none"
-              style={
-                styles.senhaTextoArea
-              }
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.senhaTexto,
-
-                  !senha &&
-                    styles.placeholder,
-                ]}
-              >
-                {senha
-                  ? mostrarSenha
-                    ? senha
-                    : '*'.repeat(
-                        senha.length
-                      )
-                  : 'Senha'}
-              </Text>
-            </View>
 
             <TouchableOpacity
               style={
@@ -605,67 +581,48 @@ export default function CadastroScreen() {
             ]}
           >
             <TextInput
+              caretHidden={false}
+              editable={!cadastrando && fonteSenhaCarregada}
               ref={
                 repetirSenhaRef
               }
-              style={
-                styles.senhaInputReal
-              }
+              style={[
+                styles.senhaInputReal,
+                { fontFamily: fonteSenhaCarregada && !mostrarRepetirSenha ? 'AutocarSenhaOculta' : fonteSenhaVisivel },
+              ]}
               value={
                 repetirSenha
               }
               onChangeText={
                 setRepetirSenha
               }
-              secureTextEntry
+              secureTextEntry={!mostrarRepetirSenha}
+              placeholder="Repetir senha"
+              placeholderTextColor={mostrarRepetirSenha ? '#777777' : 'transparent'}
+              accessibilityLabel="Repetir senha"
               autoCapitalize="none"
               autoCorrect={
                 false
               }
               returnKeyType="done"
-              caretHidden
-              selectionColor="transparent"
               onFocus={() => {
                 setRepetirSenhaFocada(
                   true
                 );
-
-                rolarParaBaixo();
               }}
               onBlur={() => {
                 setRepetirSenhaFocada(
                   false
                 );
               }}
-              onSubmitEditing={
-                cadastrar
-              }
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
+            {!mostrarRepetirSenha && !repetirSenha && (
+              <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.senhaPlaceholderArea}>
+                <Text style={styles.senhaPlaceholderTexto}>Repetir senha</Text>
+              </View>
+            )}
 
-            <View
-              pointerEvents="none"
-              style={
-                styles.senhaTextoArea
-              }
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.senhaTexto,
-
-                  !repetirSenha &&
-                    styles.placeholder,
-                ]}
-              >
-                {repetirSenha
-                  ? mostrarRepetirSenha
-                    ? repetirSenha
-                    : '*'.repeat(
-                        repetirSenha.length
-                      )
-                  : 'Repetir senha'}
-              </Text>
-            </View>
 
             <TouchableOpacity
               style={
@@ -692,21 +649,25 @@ export default function CadastroScreen() {
             style={
               styles.cadastrarButton
             }
+            disabled={cadastrando}
+            accessibilityState={{ busy: cadastrando, disabled: cadastrando }}
             onPress={
               cadastrar
             }
             activeOpacity={0.8}
           >
+            {cadastrando && <ActivityIndicator color="#FFFFFF" style={{ marginBottom: 4 }} />}
             <Text
               style={
                 styles.cadastrarButtonText
               }
             >
-              CADASTRAR
+              {cadastrando ? 'CADASTRANDO...' : 'CADASTRAR'}
             </Text>
           </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <AvisoDeEspera ativo={cadastrando} />
+        </KeyboardAwareScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -829,35 +790,18 @@ const styles =
       bottom: 0,
       paddingHorizontal: 16,
       color:
-        'transparent',
+        '#111111',
       backgroundColor:
         'transparent',
       fontSize: 16,
       zIndex: 2,
     },
 
-    senhaTextoArea: {
-      position:
-        'absolute',
-      left: 16,
-      right: 52,
-      top: 0,
-      bottom: 0,
-      justifyContent:
-        'center',
-      zIndex: 1,
+    senhaPlaceholderArea: {
+      position: 'absolute', left: 16, right: 52, top: 0, bottom: 0,
+      justifyContent: 'center', zIndex: 1,
     },
-
-    senhaTexto: {
-      color:
-        '#111111',
-      fontSize: 16,
-    },
-
-    placeholder: {
-      color:
-        '#777777',
-    },
+    senhaPlaceholderTexto: { color: '#777777', fontSize: 16 },
 
     olhoButton: {
       width: 50,

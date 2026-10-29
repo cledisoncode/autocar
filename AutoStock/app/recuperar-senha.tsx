@@ -1,371 +1,303 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
+import { router } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
-    Ionicons,
-} from '@expo/vector-icons';
-
-import {
-    router,
-} from 'expo-router';
-
-import {
-    useEffect,
-    useRef,
-    useState,
-} from 'react';
-
-import {
-    Alert,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { redefinirSenhaApi, solicitarRecuperacaoSenhaApi } from '@/services/api';
 
-import {
-    SafeAreaView,
-} from 'react-native-safe-area-context';
-
-import {
-  redefinirSenhaApi,
-  solicitarRecuperacaoSenhaApi,
-} from '@/services/api';
+type AcaoRecuperacao = { tipo: 'enviar' | 'redefinir' };
 
 export default function RecuperarSenhaScreen() {
-  const [
-    email,
-    setEmail,
-  ] = useState('');
-
+  const [email, setEmail] = useState('');
   const [codigo, setCodigo] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [etapaCodigo, setEtapaCodigo] = useState(false);
   const [processando, setProcessando] = useState(false);
-
-  const [
-    tecladoAberto,
-    setTecladoAberto,
-  ] = useState(false);
-
-  const emailRef =
-    useRef<TextInput>(
-      null
-    );
-
-  const scrollRef =
-    useRef<ScrollView>(
-      null
-    );
+  const [concluido, setConcluido] = useState(false);
+  const [tecladoAberto, setTecladoAberto] = useState(false);
+  const [fonteSenhaCarregada, erroFonteSenha] = useFonts({
+    AutocarSenhaOculta: require('@/assets/fonts/autocar-senha-oculta.ttf'),
+  });
+  const fonteSenhaVisivel = Platform.OS === 'ios' ? 'System' : 'sans-serif';
+  const novaSenhaRef = useRef<TextInput>(null);
+  const acaoRef = useRef<AcaoRecuperacao | null>(null);
+  const montadoRef = useRef(true);
+  const concluidoRef = useRef(false);
+  const etapaCodigoRef = useRef(false);
+  const ocupado = processando || concluido;
 
   useEffect(() => {
-    const mostrar =
-      Keyboard.addListener(
-        'keyboardDidShow',
-        () => {
-          setTecladoAberto(
-            true
-          );
-
-          setTimeout(() => {
-            scrollRef.current
-              ?.scrollToEnd({
-                animated: true,
-              });
-          }, 100);
-        }
-      );
-
-    const esconder =
-      Keyboard.addListener(
-        'keyboardDidHide',
-        () => {
-          setTecladoAberto(
-            false
-          );
-        }
-      );
-
+    montadoRef.current = true;
+    const mostrar = Keyboard.addListener('keyboardDidShow', () => setTecladoAberto(true));
+    const esconder = Keyboard.addListener('keyboardDidHide', () => setTecladoAberto(false));
     return () => {
+      montadoRef.current = false;
+      acaoRef.current = null;
       mostrar.remove();
       esconder.remove();
     };
   }, []);
 
-  function normalizarEmail(
-    texto: string
-  ) {
-    return texto
-      .trim()
-      .toLowerCase()
-      .normalize('NFKC');
+  function bloqueado() {
+    return !montadoRef.current || acaoRef.current !== null || concluidoRef.current;
+  }
+
+  function iniciar(acao: AcaoRecuperacao) {
+    if (bloqueado()) return false;
+    acaoRef.current = acao;
+    setProcessando(true);
+    Keyboard.dismiss();
+    return true;
+  }
+
+  function acaoAtual(acao: AcaoRecuperacao) {
+    return montadoRef.current && acaoRef.current === acao;
+  }
+
+  function concluir(acao: AcaoRecuperacao) {
+    if (acaoRef.current !== acao) return;
+    acaoRef.current = null;
+    if (montadoRef.current) setProcessando(false);
   }
 
   async function recuperar() {
-    const emailDigitado =
-      normalizarEmail(
-        email
-      );
-
+    if (bloqueado() || etapaCodigoRef.current) return;
+    const emailDigitado = email.trim().toLowerCase().normalize('NFKC');
     if (!emailDigitado) {
       Keyboard.dismiss();
-
-      Alert.alert(
-        'Atenção',
-        'Informe o e-mail cadastrado.'
-      );
-
+      Alert.alert('Atenção', 'Informe o e-mail cadastrado.');
       return;
     }
-
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDigitado)) {
       Keyboard.dismiss();
-      Alert.alert(
-        'E-mail inválido',
-        'Informe o mesmo e-mail usado no cadastro.'
-      );
+      Alert.alert('E-mail inválido', 'Informe o mesmo e-mail usado no cadastro.');
       return;
     }
-
-    Keyboard.dismiss();
-    setProcessando(true);
-
+    const acao: AcaoRecuperacao = { tipo: 'enviar' };
+    if (!iniciar(acao)) return;
     try {
       await solicitarRecuperacaoSenhaApi(emailDigitado);
+      if (!acaoAtual(acao)) return;
       setEmail(emailDigitado);
+      etapaCodigoRef.current = true;
       setEtapaCodigo(true);
       Alert.alert(
         'Confira seu e-mail',
         'Se o endereço estiver cadastrado, você receberá um código de 8 dígitos válido por 10 minutos.'
       );
     } catch (erro) {
-      Alert.alert(
-        'Não foi possível enviar o código',
-        erro instanceof Error ? erro.message : 'Tente novamente em alguns instantes.'
-      );
+      if (!acaoAtual(acao)) return;
+      Alert.alert('Não foi possível enviar o código', erro instanceof Error ? erro.message : 'Tente novamente em alguns instantes.');
     } finally {
-      setProcessando(false);
+      concluir(acao);
     }
   }
 
   async function confirmarCodigo() {
-    if (!/^\d{8}$/.test(codigo.trim())) {
+    if (bloqueado() || !etapaCodigoRef.current || !fonteSenhaCarregada || erroFonteSenha) return;
+    const codigoInformado = codigo.trim();
+    if (!/^\d{8}$/.test(codigoInformado)) {
+      Keyboard.dismiss();
       Alert.alert('Código inválido', 'Digite os 8 números recebidos por e-mail.');
       return;
     }
-
     if (novaSenha.length < 6) {
+      Keyboard.dismiss();
       Alert.alert('Senha muito curta', 'A nova senha deve ter pelo menos 6 caracteres.');
       return;
     }
-
-    Keyboard.dismiss();
-    setProcessando(true);
-
+    const acao: AcaoRecuperacao = { tipo: 'redefinir' };
+    if (!iniciar(acao)) return;
     try {
-      await redefinirSenhaApi(email, codigo.trim(), novaSenha);
+      await redefinirSenhaApi(email, codigoInformado, novaSenha);
+      if (!acaoAtual(acao)) return;
+      concluidoRef.current = true;
+      setConcluido(true);
       setCodigo('');
       setNovaSenha('');
+      setMostrarSenha(false);
       Alert.alert('Senha alterada', 'Agora entre usando sua nova senha.', [
-        { text: 'OK', onPress: () => router.replace('/') },
-      ]);
+        { text: 'OK', onPress: () => { if (montadoRef.current) router.replace('/'); } },
+      ], { cancelable: false });
     } catch (erro) {
-      Alert.alert(
-        'Não foi possível alterar a senha',
-        erro instanceof Error ? erro.message : 'Confira o código e tente novamente.'
-      );
+      if (!acaoAtual(acao)) return;
+      Alert.alert('Não foi possível alterar a senha', erro instanceof Error ? erro.message : 'Confira o código e tente novamente.');
     } finally {
-      setProcessando(false);
+      concluir(acao);
     }
   }
 
-  return (
-    <SafeAreaView
-      style={
-        styles.safeArea
-      }
-      edges={[
-        'top',
-        'left',
-        'right',
-      ]}
-    >
-      <KeyboardAvoidingView
-        style={
-          styles.container
-        }
-        behavior={
-          Platform.OS ===
-          'ios'
-            ? 'padding'
-            : 'height'
-        }
-        keyboardVerticalOffset={
-          0
-        }
-      >
-        <ScrollView
-          ref={scrollRef}
-          style={
-            styles.scroll
-          }
-          contentContainerStyle={[
-            styles.content,
+  function voltar() {
+    if (bloqueado()) return;
+    Keyboard.dismiss();
+    router.replace('/');
+  }
 
-            tecladoAberto &&
-              styles.contentTeclado,
-          ]}
+  function usarOutroEmail() {
+    if (bloqueado()) return;
+    Keyboard.dismiss();
+    etapaCodigoRef.current = false;
+    setEtapaCodigo(false);
+    setCodigo('');
+    setNovaSenha('');
+    setMostrarSenha(false);
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <View style={styles.container}>
+        <KeyboardAwareScrollView
+          bottomOffset={28}
+          extraKeyboardSpace={24}
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, tecladoAberto && styles.contentTeclado]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={
-            false
-          }
+          showsVerticalScrollIndicator={false}
         >
           <TouchableOpacity
-            style={
-              styles.voltarButton
-            }
-            onPress={() => {
-              Keyboard.dismiss();
-
-              router.replace(
-                '/'
-              );
-            }}
+            style={[styles.voltarButton, ocupado && styles.botaoDesabilitado]}
+            onPress={voltar}
+            disabled={ocupado}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: ocupado }}
             activeOpacity={0.7}
           >
-            <Ionicons
-              name="arrow-back"
-              size={24}
-              color="#FFFFFF"
-            />
-
-            <Text
-              style={
-                styles.voltarText
-              }
-            >
-              Voltar
-            </Text>
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            <Text style={styles.voltarText}>Voltar</Text>
           </TouchableOpacity>
 
-          <View
-            style={[
-              styles.card,
-
-              tecladoAberto &&
-                styles.cardTeclado,
-            ]}
-          >
+          <View style={[styles.card, tecladoAberto && styles.cardTeclado]}>
             {!tecladoAberto && (
-              <View
-                style={
-                  styles.iconeArea
-                }
-              >
-                <Ionicons
-                  name="mail-outline"
-                  size={34}
-                  color="#E53935"
-                />
+              <View style={styles.iconeArea}>
+                <Ionicons name="mail-outline" size={34} color="#E53935" />
               </View>
             )}
-
-            <Text
-              style={[
-                styles.titulo,
-
-                tecladoAberto &&
-                  styles.tituloTeclado,
-              ]}
-            >
-              Recuperar senha
-            </Text>
-
+            <Text style={[styles.titulo, tecladoAberto && styles.tituloTeclado]}>Redefinir Senha</Text>
             {!tecladoAberto && (
-              <Text
-                style={
-                  styles.descricao
-                }
-              >
-                Informe o e-mail cadastrado na conta do administrador.
-              </Text>
+              <Text style={styles.descricao}>Informe o e-mail cadastrado na conta do administrador.</Text>
             )}
 
             {!etapaCodigo ? (
               <>
                 <TextInput
-                  ref={emailRef}
+                  caretHidden={false}
                   style={styles.input}
                   placeholder="E-mail"
                   placeholderTextColor="#777777"
+                  accessibilityLabel="E-mail cadastrado"
                   value={email}
-                  onChangeText={(texto) => setEmail(texto.replace(/\s/g, ''))}
+                  editable={!ocupado}
+                  onChangeText={texto => { if (!bloqueado() && !etapaCodigoRef.current) setEmail(texto.replace(/\s/g, '')); }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                   autoComplete="email"
                   textContentType="emailAddress"
                   returnKeyType="done"
-                  onFocus={() => {
-                    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-                  }}
-                  onSubmitEditing={recuperar}
+                  onSubmitEditing={() => Keyboard.dismiss()}
                 />
                 <TouchableOpacity
-                  style={[styles.recuperarButton, processando && styles.botaoDesabilitado]}
+                  style={[styles.recuperarButton, styles.botaoComIndicador, ocupado && styles.botaoDesabilitado]}
                   onPress={recuperar}
-                  disabled={processando}
+                  disabled={ocupado}
+                  accessibilityRole="button"
+                  accessibilityLabel={processando ? 'Enviando código' : 'Enviar código'}
+                  accessibilityState={{ disabled: ocupado, busy: processando }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.recuperarButtonText}>
-                    {processando ? 'ENVIANDO...' : 'ENVIAR CÓDIGO'}
-                  </Text>
+                  {processando && <ActivityIndicator size="small" color="#FFFFFF" />}
+                  <Text style={styles.recuperarButtonText}>{processando ? 'ENVIANDO...' : 'ENVIAR CÓDIGO'}</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
                 <Text style={styles.emailSelecionado}>{email}</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Código de 8 dígitos"
-                  placeholderTextColor="#777777"
-                  value={codigo}
-                  onChangeText={(texto) => setCodigo(texto.replace(/\D/g, '').slice(0, 8))}
-                  keyboardType="number-pad"
-                  returnKeyType="next"
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nova senha (mínimo 6 caracteres)"
-                  placeholderTextColor="#777777"
-                  value={novaSenha}
-                  onChangeText={setNovaSenha}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  onSubmitEditing={confirmarCodigo}
-                />
+                <View style={styles.camposCodigo}>
+                  <TextInput
+                    caretHidden={false}
+                    style={styles.input}
+                    placeholder="Código de 8 dígitos"
+                    placeholderTextColor="#777777"
+                    accessibilityLabel="Código de 8 dígitos recebido por e-mail"
+                    value={codigo}
+                    editable={!ocupado}
+                    onChangeText={texto => { if (!bloqueado() && etapaCodigoRef.current) setCodigo(texto.replace(/\D/g, '').slice(0, 8)); }}
+                    keyboardType="number-pad"
+                    autoComplete="one-time-code"
+                    textContentType="oneTimeCode"
+                    returnKeyType="next"
+                    onSubmitEditing={() => { if (!bloqueado()) novaSenhaRef.current?.focus(); }}
+                  />
+                  <View style={styles.senhaContainer}>
+                    <TextInput
+                      ref={novaSenhaRef}
+                      caretHidden={false}
+                      style={[styles.senhaInput, { fontFamily: fonteSenhaCarregada && !mostrarSenha ? 'AutocarSenhaOculta' : fonteSenhaVisivel }]}
+                      placeholder="Nova senha"
+                      placeholderTextColor={mostrarSenha ? '#777777' : 'transparent'}
+                      accessibilityLabel="Nova senha, mínimo 6 caracteres"
+                      value={novaSenha}
+                      editable={!ocupado && fonteSenhaCarregada}
+                      onChangeText={texto => { if (!bloqueado() && etapaCodigoRef.current && fonteSenhaCarregada) setNovaSenha(texto); }}
+                      secureTextEntry={!mostrarSenha}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="new-password"
+                      textContentType="newPassword"
+                      returnKeyType="done"
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                    />
+                    {!mostrarSenha && !novaSenha && (
+                      <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.senhaPlaceholderArea}>
+                        <Text style={styles.senhaPlaceholderTexto}>Nova senha</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity
+                      style={styles.olhoButton}
+                      onPress={() => { if (!bloqueado()) setMostrarSenha(atual => !atual); }}
+                      disabled={ocupado}
+                      accessibilityRole="button"
+                      accessibilityLabel={mostrarSenha ? 'Ocultar nova senha' : 'Mostrar nova senha'}
+                      accessibilityState={{ disabled: ocupado }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name={mostrarSenha ? 'eye-off-outline' : 'eye-outline'} size={23} color="#555555" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {erroFonteSenha && <Text style={styles.dicaTeclado}>Não foi possível carregar o campo de senha. Reabra o aplicativo.</Text>}
                 <TouchableOpacity
-                  style={[styles.recuperarButton, processando && styles.botaoDesabilitado]}
+                  style={[styles.recuperarButton, styles.botaoComIndicador, (ocupado || !fonteSenhaCarregada || !!erroFonteSenha) && styles.botaoDesabilitado]}
                   onPress={confirmarCodigo}
-                  disabled={processando}
+                  disabled={ocupado || !fonteSenhaCarregada || !!erroFonteSenha}
+                  accessibilityRole="button"
+                  accessibilityLabel={processando ? 'Salvando nova senha' : 'Alterar senha'}
+                  accessibilityState={{ disabled: ocupado || !fonteSenhaCarregada || !!erroFonteSenha, busy: processando }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.recuperarButtonText}>
-                    {processando ? 'SALVANDO...' : 'ALTERAR SENHA'}
-                  </Text>
+                  {processando && <ActivityIndicator size="small" color="#FFFFFF" />}
+                  <Text style={styles.recuperarButtonText}>{processando ? 'SALVANDO...' : 'ALTERAR SENHA'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.voltarEtapaButton}
-                  onPress={() => {
-                    setEtapaCodigo(false);
-                    setCodigo('');
-                    setNovaSenha('');
-                  }}
+                  style={[styles.voltarEtapaButton, ocupado && styles.botaoDesabilitado]}
+                  onPress={usarOutroEmail}
+                  disabled={ocupado}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: ocupado }}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.voltarEtapaText}>Usar outro e-mail</Text>
@@ -374,22 +306,17 @@ export default function RecuperarSenhaScreen() {
             )}
 
             {tecladoAberto && (
-              <Text
-                style={
-                  styles.dicaTeclado
-                }
-              >
-                {etapaCodigo
-                  ? 'Digite o código recebido e escolha a nova senha.'
-                  : 'Confira o e-mail e toque em Enviar código.'}
+              <Text style={styles.dicaTeclado}>
+                {etapaCodigo ? 'Digite o código e toque em Alterar senha.' : 'Confira o e-mail e toque em Enviar código.'}
               </Text>
             )}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+      </View>
     </SafeAreaView>
   );
 }
+
 
 const styles =
   StyleSheet.create({
@@ -557,8 +484,6 @@ const styles =
         '#111111',
 
       fontSize: 16,
-
-      marginBottom: 12,
     },
 
     recuperarButton: {
@@ -588,28 +513,6 @@ const styles =
         '900',
     },
 
-    botaoDesabilitado: {
-      opacity: 0.65,
-    },
-
-    emailSelecionado: {
-      color: '#BBBBBB',
-      fontSize: 14,
-      textAlign: 'center',
-      marginBottom: 14,
-    },
-
-    voltarEtapaButton: {
-      alignSelf: 'center',
-      padding: 12,
-    },
-
-    voltarEtapaText: {
-      color: '#BBBBBB',
-      fontSize: 14,
-      fontWeight: '600',
-    },
-
     dicaTeclado: {
       color:
         '#888888',
@@ -621,4 +524,16 @@ const styles =
 
       marginTop: 12,
     },
+
+    botaoDesabilitado: { opacity: 0.65 },
+    botaoComIndicador: { flexDirection: 'row', gap: 8 },
+    camposCodigo: { gap: 12 },
+    emailSelecionado: { color: '#BBBBBB', fontSize: 14, textAlign: 'center', marginBottom: 14 },
+    senhaContainer: { height: 52, backgroundColor: '#FFFFFF', borderRadius: 10, flexDirection: 'row', alignItems: 'center' },
+    senhaInput: { flex: 1, height: '100%', paddingHorizontal: 16, color: '#111111', fontSize: 16 },
+    senhaPlaceholderArea: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', paddingLeft: 16, paddingRight: 48 },
+    senhaPlaceholderTexto: { color: '#777777', fontSize: 16 },
+    olhoButton: { width: 48, height: '100%', alignItems: 'center', justifyContent: 'center' },
+    voltarEtapaButton: { alignSelf: 'center', padding: 12 },
+    voltarEtapaText: { color: '#BBBBBB', fontSize: 14, fontWeight: '600' },
   });

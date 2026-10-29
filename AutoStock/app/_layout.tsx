@@ -12,6 +12,7 @@ import {
 } from 'expo-status-bar';
 
 import 'react-native-reanimated';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import {
   AppDataProvider,
@@ -19,42 +20,44 @@ import {
 
 export default function RootLayout() {
   return (
-    <AppDataProvider>
-      <ThemeProvider
-        value={
-          DarkTheme
-        }
-      >
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: {
-              backgroundColor:
-                '#000000',
-            },
-          }}
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+      <AppDataProvider>
+        <ThemeProvider
+          value={
+            DarkTheme
+          }
         >
-          <Stack.Screen
-            name="index"
-          />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: {
+                backgroundColor:
+                  '#000000',
+              },
+            }}
+          >
+            <Stack.Screen
+              name="index"
+            />
 
-          <Stack.Screen
-            name="cadastro"
-          />
+            <Stack.Screen
+              name="cadastro"
+            />
 
-          <Stack.Screen
-            name="recuperar-senha"
-          />
+            <Stack.Screen
+              name="recuperar-senha"
+            />
 
-          <Stack.Screen
-            name="(tabs)"
-          />
-        </Stack>
+            <Stack.Screen
+              name="(tabs)"
+            />
+          </Stack>
 
-        <StatusBar
-          style="light"
-        />
-      </ThemeProvider>
-    </AppDataProvider>
+          <StatusBar
+            style="light"
+          />
+        </ThemeProvider>
+      </AppDataProvider>
+    </KeyboardProvider>
   );
 }

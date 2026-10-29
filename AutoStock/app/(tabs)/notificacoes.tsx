@@ -812,7 +812,7 @@ const styles =
     content: {
       paddingHorizontal: 20,
 
-      paddingTop: 50,
+      paddingTop: 16,
 
       paddingBottom: 80,
     },

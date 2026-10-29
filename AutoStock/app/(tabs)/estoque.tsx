@@ -1,3 +1,9 @@
+import { Image as CachedImage } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AvisoDeEspera } from '@/components/aviso-de-espera';
+import { KeyboardAwareScrollView, useGenericKeyboardHandler } from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+
 import {
   comprasVisiveis,
   converterData,
@@ -12,7 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, type LayoutChangeEvent } from 'react-native';
 import { AppHeader } from '@/components/app-header';
 import { type CategoriaProduto, type CompraProduto, type Produto, useAppData } from '@/contexts/app-data-context';
 
@@ -29,6 +35,7 @@ type ModoExclusao = 'produto' | 'compra' | null;
 const categorias: CategoriaProduto[] = ['Lavagem Interna', 'Lavagem Externa', 'Vidros', 'Acabamento'];
 
 export default function EstoqueScreen() {
+  const insets = useSafeAreaInsets();
   const [aba, setAba] = useState<Aba>('novo');
   const [categoriaCadastroAberta, setCategoriaCadastroAberta] = useState(false);
   const [categoriaFiltroAberta, setCategoriaFiltroAberta] = useState(false);
@@ -52,11 +59,21 @@ export default function EstoqueScreen() {
   const [modoCadastro, setModoCadastro] = useState<ModoCadastro>('produto');
   const [produtoParaAdicionar, setProdutoParaAdicionar] = useState<Produto | null>(null);
   const [salvandoProduto, setSalvandoProduto] = useState(false);
+  const salvandoProdutoRef = useRef(false);
   const [modalRetiradaAberto, setModalRetiradaAberto] = useState(false);
   const [produtoParaRetirar, setProdutoParaRetirar] = useState<Produto | null>(null);
   const [compraRetiradaSelecionadaId, setCompraRetiradaSelecionadaId] = useState<number | null>(null);
   const [quantidadeRetirada, setQuantidadeRetirada] = useState('');
+  const [paginaRetirada, setPaginaRetirada] = useState(0);
+  const [comprasPorPaginaRetirada, setComprasPorPaginaRetirada] = useState(2);
+  const alturaJanelaRetirada = useSharedValue(0);
+  const alturaTelaRetirada = useSharedValue(0);
+  const alturaCardRetirada = useSharedValue(0);
+  const alturaTecladoRetirada = useSharedValue(0);
   const [retirandoUnidades, setRetirandoUnidades] = useState(false);
+  const retirandoUnidadesRef = useRef(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const excluindoRef = useRef(false);
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false);
   const [produtoParaExcluir, setProdutoParaExcluir] = useState<Produto | null>(null);
   const [modoExclusao, setModoExclusao] = useState<ModoExclusao>(null);
@@ -67,6 +84,81 @@ export default function EstoqueScreen() {
   const dataCompraRef = useRef<TextInput>(null);
   const dataVencimentoRef = useRef<TextInput>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Acompanha os quadros do teclado sem esperar keyboardDidShow.
+  // O onStart informa o destino da animação: não o aplicamos como altura atual.
+  useGenericKeyboardHandler({
+    onMove: evento => {
+      'worklet';
+      if (modalRetiradaAberto) alturaTecladoRetirada.value = Math.max(0, evento.height);
+    },
+    onInteractive: evento => {
+      'worklet';
+      if (modalRetiradaAberto) alturaTecladoRetirada.value = Math.max(0, evento.height);
+    },
+    onEnd: evento => {
+      'worklet';
+      if (modalRetiradaAberto) alturaTecladoRetirada.value = Math.max(0, evento.height);
+    },
+  }, [modalRetiradaAberto]);
+
+  const estiloTecladoRetirada = useAnimatedStyle(() => {
+    if (alturaTelaRetirada.value <= 0 || alturaJanelaRetirada.value <= 0) return {};
+    // A altura do teclado usa a tela inteira. A janela do Modal pode já estar
+    // menor por causa das barras do sistema ou do ajuste nativo do Android.
+    const alturaLivre = Math.max(1, alturaTelaRetirada.value - alturaTecladoRetirada.value);
+    return { height: Math.min(alturaJanelaRetirada.value, alturaLivre), flex: 0 };
+  });
+
+  const estiloCardRetirada = useAnimatedStyle(() => {
+    const alturaCard = alturaCardRetirada.value;
+    if (alturaCard <= 0 || alturaTelaRetirada.value <= 0 || alturaJanelaRetirada.value <= 0) {
+      return { opacity: 0 };
+    }
+
+    const alturaVisivel = Math.min(
+      alturaJanelaRetirada.value,
+      Math.max(1, alturaTelaRetirada.value - alturaTecladoRetirada.value),
+    );
+    const margemSuperior = Math.max(insets.top, 12);
+    const margemSemTeclado = Math.max(insets.bottom, 12);
+    const margemInferior = alturaTecladoRetirada.value > 0 ? 8 : margemSemTeclado;
+    const alturaUtil = Math.max(1, alturaVisivel - margemSuperior - margemInferior);
+    // Em uma janela muito pequena, reduz o cartão inteiro em vez de cortar
+    // os botões. O layout, os campos e a área de toque permanecem juntos.
+    const escala = Math.min(1, alturaUtil / alturaCard);
+    const alturaExibida = alturaCard * escala;
+    const topoCentralizado = margemSuperior + Math.max(
+      0,
+      (alturaTelaRetirada.value - margemSuperior - margemSemTeclado - alturaCard) / 2,
+    );
+    // Conserva a posição original até o teclado alcançar o cartão. Depois
+    // desloca somente o necessário, deixando 8 pontos acima do teclado.
+    const topo = Math.max(
+      margemSuperior,
+      Math.min(topoCentralizado, alturaVisivel - margemInferior - alturaExibida),
+    );
+    return {
+      opacity: 1,
+      transform: [
+        { translateY: topo - (alturaCard - alturaExibida) / 2 },
+        { scale: escala },
+      ],
+    };
+  });
+
+  function medirModalRetirada(evento: LayoutChangeEvent) {
+    const altura = evento.nativeEvent.layout.height;
+    const tela = Dimensions.get('screen').height;
+    if (!Number.isFinite(altura) || altura <= 0 || !Number.isFinite(tela) || tela <= 0) return;
+    alturaJanelaRetirada.value = altura;
+    alturaTelaRetirada.value = tela;
+  }
+
+  function medirCardRetirada(evento: LayoutChangeEvent) {
+    const altura = evento.nativeEvent.layout.height;
+    if (Number.isFinite(altura) && altura > 0) alturaCardRetirada.value = altura;
+  }
 
   const {
     produtos,
@@ -167,7 +259,7 @@ export default function EstoqueScreen() {
   }
 
   async function salvarProduto() {
-    if (salvandoProduto) {
+    if (salvandoProdutoRef.current) {
       return;
     }
 
@@ -216,6 +308,7 @@ export default function EstoqueScreen() {
       }
     }
 
+    salvandoProdutoRef.current = true;
     setSalvandoProduto(true);
 
     try {
@@ -244,6 +337,7 @@ export default function EstoqueScreen() {
       Alert.alert('Não foi possível cadastrar', erro instanceof Error ? erro.message : 'Verifique a conexão com o servidor.');
       return;
     } finally {
+      salvandoProdutoRef.current = false;
       setSalvandoProduto(false);
     }
 
@@ -257,14 +351,6 @@ export default function EstoqueScreen() {
     setAba('produtos');
 
     Alert.alert('AUTOCAR', modoCadastro === 'produto' ? 'Produto cadastrado no estoque.' : 'Unidades adicionadas ao estoque.');
-  }
-
-  function rolarParaBaixo() {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({
-        animated: true
-      });
-    }, 180);
   }
 
   function selecionarCategoriaCadastro(item: CategoriaProduto) {
@@ -385,11 +471,45 @@ export default function EstoqueScreen() {
     setProdutoParaRetirar(produto);
     setCompraRetiradaSelecionadaId(comprasDisponiveis.length === 1 ? comprasDisponiveis[0].id : null);
     setQuantidadeRetirada('');
+    setPaginaRetirada(0);
+    setComprasPorPaginaRetirada(2);
+    alturaJanelaRetirada.value = 0;
+    alturaTelaRetirada.value = 0;
+    alturaCardRetirada.value = 0;
+    alturaTecladoRetirada.value = 0;
     setModalRetiradaAberto(true);
   }
 
+  const comprasDaRetirada = produtoParaRetirar ? comprasDisponiveisParaRetirada(produtoParaRetirar) : [];
+  const paginasRetirada = Math.max(1, Math.ceil(comprasDaRetirada.length / comprasPorPaginaRetirada));
+  const paginaVisivelRetirada = Math.min(paginaRetirada, paginasRetirada - 1);
+  const comprasDaPaginaRetirada = comprasDaRetirada.slice(
+    paginaVisivelRetirada * comprasPorPaginaRetirada,
+    (paginaVisivelRetirada + 1) * comprasPorPaginaRetirada
+  );
+
+  function ajustarEspacoRetirada(evento: LayoutChangeEvent) {
+    const margemInferior = alturaTecladoRetirada.value > 0 ? 8 : Math.max(insets.bottom, 12);
+    const altura = evento.nativeEvent.layout.height - Math.max(insets.top, 12) - margemInferior;
+    // Duas compras cabem no formato compacto; em pouco espaço, uma por página.
+    const porPagina = altura >= (comprasDaRetirada.length > 2 ? 400 : 360) ? 2 : 1;
+    if (porPagina === comprasPorPaginaRetirada) return;
+    const selecionada = comprasDaRetirada.findIndex(compra => compra.id === compraRetiradaSelecionadaId);
+    const primeira = paginaVisivelRetirada * comprasPorPaginaRetirada;
+    setComprasPorPaginaRetirada(porPagina);
+    setPaginaRetirada(Math.floor((selecionada >= 0 ? selecionada : primeira) / porPagina));
+  }
+
+  function trocarPaginaRetirada(pagina: number) {
+    if (retirandoUnidadesRef.current || pagina < 0 || pagina >= paginasRetirada) return;
+    Keyboard.dismiss();
+    setPaginaRetirada(pagina);
+    setCompraRetiradaSelecionadaId(null);
+    setQuantidadeRetirada('');
+  }
+
   function fecharModalRetirada() {
-    if (retirandoUnidades) {
+    if (retirandoUnidadesRef.current) {
       return;
     }
 
@@ -400,7 +520,7 @@ export default function EstoqueScreen() {
   }
 
   async function confirmarRetirada() {
-    if (!produtoParaRetirar || retirandoUnidades) {
+    if (!produtoParaRetirar || retirandoUnidadesRef.current) {
       return;
     }
 
@@ -430,7 +550,9 @@ export default function EstoqueScreen() {
       return;
     }
 
+    retirandoUnidadesRef.current = true;
     setRetirandoUnidades(true);
+    Keyboard.dismiss();
 
     try {
       await retirarUnidadesProduto(produtoParaRetirar.id, compraEscolhida.id, quantidadeNumero);
@@ -438,6 +560,7 @@ export default function EstoqueScreen() {
       Alert.alert('Não foi possível retirar', erro instanceof Error ? erro.message : 'Tente novamente.');
       return;
     } finally {
+      retirandoUnidadesRef.current = false;
       setRetirandoUnidades(false);
     }
 
@@ -446,7 +569,7 @@ export default function EstoqueScreen() {
     setCompraRetiradaSelecionadaId(null);
     setQuantidadeRetirada('');
 
-    Alert.alert('AUTOCAR', `${quantidadeNumero} ${quantidadeNumero === 1 ? 'unidade retirada' : 'unidades retiradas'} da compra com vencimento ${compraEscolhida.dataVencimento ?? 'não informado'}.`);
+    Alert.alert('AUTOCAR', 'Produto retirado do estoque.');
   }
 
   function abrirModalExcluir(produto: Produto) {
@@ -458,6 +581,7 @@ export default function EstoqueScreen() {
   }
 
   function fecharModalExcluir() {
+    if (excluindoRef.current) return;
     setModalExcluirAberto(false);
     setProdutoParaExcluir(null);
     setModoExclusao(null);
@@ -465,34 +589,25 @@ export default function EstoqueScreen() {
   }
 
   async function confirmarExclusao() {
-    if (!produtoParaExcluir) {
-      return;
-    }
-
-    if (modoExclusao === 'produto') {
-      try {
+    if (!produtoParaExcluir || excluindoRef.current) return;
+    if (modoExclusao !== 'produto' && !(modoExclusao === 'compra' && compraSelecionadaId !== null)) return;
+    excluindoRef.current = true;
+    setExcluindo(true);
+    try {
+      if (modoExclusao === 'produto') {
         await excluirProdutoDoEstoque(produtoParaExcluir.id);
-      } catch (erro) {
-        Alert.alert('Não foi possível excluir', erro instanceof Error ? erro.message : 'Verifique a conexão com o servidor.');
-        return;
+      } else {
+        await excluirCompraDoEstoque(produtoParaExcluir.id, compraSelecionadaId!);
       }
-
-      fecharModalExcluir();
-      Alert.alert('AUTOCAR', 'Produto excluído do estoque.');
+    } catch (erro) {
+      Alert.alert('Não foi possível excluir', erro instanceof Error ? erro.message : 'Verifique a conexão com o servidor.');
       return;
+    } finally {
+      excluindoRef.current = false;
+      setExcluindo(false);
     }
-
-    if (modoExclusao === 'compra' && compraSelecionadaId !== null) {
-      try {
-        await excluirCompraDoEstoque(produtoParaExcluir.id, compraSelecionadaId);
-      } catch (erro) {
-        Alert.alert('Não foi possível excluir', erro instanceof Error ? erro.message : 'Verifique a conexão com o servidor.');
-        return;
-      }
-
-      fecharModalExcluir();
-      Alert.alert('AUTOCAR', 'Compra excluída do estoque.');
-    }
+    fecharModalExcluir();
+    Alert.alert('AUTOCAR', modoExclusao === 'produto' ? 'Produto excluído do estoque.' : 'Compra excluída do estoque.');
   }
 
   const podeConfirmarExclusao = modoExclusao === 'produto' || modoExclusao === 'compra' && compraSelecionadaId !== null;
@@ -565,9 +680,9 @@ export default function EstoqueScreen() {
           uri: produto.foto as string,
           nome: produto.nome
         })} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel={`Ampliar foto de ${produto.nome}`}>
-              <Image source={{
+              <CachedImage cachePolicy="memory-disk" contentFit="contain" source={{
             uri: produto.foto
-          }} style={styles.produtoFoto} resizeMode="contain" />
+          }} style={styles.produtoFoto} />
 
               <View style={styles.produtoFotoAmpliarIcone} pointerEvents="none">
                 <Ionicons name="expand-outline" size={13} color="#FFFFFF" />
@@ -663,8 +778,8 @@ export default function EstoqueScreen() {
       </View>;
   }
 
-  return <KeyboardAvoidingView style={styles.keyboardContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView ref={scrollRef} style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+  return <View style={styles.keyboardContainer}>
+      <KeyboardAwareScrollView pointerEvents={salvandoProduto ? 'none' : 'auto'} bottomOffset={28} extraKeyboardSpace={24} enabled={!modalRetiradaAberto} ref={scrollRef} style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
         <AppHeader />
 
         <View style={styles.abas}>
@@ -693,9 +808,9 @@ export default function EstoqueScreen() {
 
             {foto && <View style={styles.fotoSelecionadaArea}>
                 <View style={styles.fotoSelecionadaMoldura}>
-                  <Image source={{
+                  <CachedImage cachePolicy="memory-disk" contentFit="contain" source={{
                 uri: foto
-              }} style={styles.fotoSelecionada} resizeMode="contain" />
+              }} style={styles.fotoSelecionada} />
                 </View>
 
                 <View style={styles.fotoSelecionadaInfo}>
@@ -715,7 +830,8 @@ export default function EstoqueScreen() {
               Nome do produto
             </Text>
 
-            <TextInput ref={nomeRef} style={styles.input} value={nome} onChangeText={setNome} placeholder="Nome do produto" placeholderTextColor="#777777" returnKeyType="next" onSubmitEditing={() => {
+            <TextInput
+              caretHidden={false} editable={!salvandoProduto} ref={nomeRef} style={styles.input} value={nome} onChangeText={setNome} placeholder="Nome do produto" placeholderTextColor="#777777" returnKeyType="next" onSubmitEditing={() => {
             Keyboard.dismiss();
           }} />
 
@@ -773,7 +889,8 @@ export default function EstoqueScreen() {
               Valor
             </Text>
 
-            <TextInput ref={valorRef} style={styles.input} value={valor} onFocus={() => {
+            <TextInput
+              caretHidden={false} editable={!salvandoProduto} ref={valorRef} style={styles.input} value={valor} onFocus={() => {
           if (!valor) {
             setValor('R$ ');
           }
@@ -783,13 +900,15 @@ export default function EstoqueScreen() {
               Quantidade
             </Text>
 
-            <TextInput ref={quantidadeRef} style={styles.input} value={quantidade} onChangeText={setQuantidade} placeholder="Quantidade" placeholderTextColor="#777777" keyboardType="numeric" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => dataCompraRef.current?.focus()} />
+            <TextInput
+              caretHidden={false} editable={!salvandoProduto} ref={quantidadeRef} style={styles.input} value={quantidade} onChangeText={setQuantidade} placeholder="Quantidade" placeholderTextColor="#777777" keyboardType="numeric" returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => dataCompraRef.current?.focus()} />
 
             <Text style={styles.label}>
               Data da compra
             </Text>
 
-            <TextInput ref={dataCompraRef} style={styles.input} value={dataCompra} onChangeText={texto => setDataCompra(formatarData(texto))} placeholder="DD/MM/AAAA" placeholderTextColor="#777777" keyboardType="numeric" maxLength={10} returnKeyType={semVencimento ? 'done' : 'next'} submitBehavior="submit" onFocus={rolarParaBaixo} onSubmitEditing={() => {
+            <TextInput
+              caretHidden={false} editable={!salvandoProduto} ref={dataCompraRef} style={styles.input} value={dataCompra} onChangeText={texto => setDataCompra(formatarData(texto))} placeholder="DD/MM/AAAA" placeholderTextColor="#777777" keyboardType="numeric" maxLength={10} returnKeyType={semVencimento ? 'done' : 'next'} submitBehavior="submit" onSubmitEditing={() => {
           if (semVencimento) {
             Keyboard.dismiss();
             return;
@@ -821,7 +940,8 @@ export default function EstoqueScreen() {
                   Data de vencimento
                 </Text>
 
-                <TextInput ref={dataVencimentoRef} style={styles.input} value={dataVencimento} onChangeText={texto => setDataVencimento(formatarData(texto))} placeholder="DD/MM/AAAA" placeholderTextColor="#777777" keyboardType="numeric" maxLength={10} returnKeyType="done" onFocus={rolarParaBaixo} onSubmitEditing={() => Keyboard.dismiss()} />
+                <TextInput
+                  caretHidden={false} editable={!salvandoProduto} ref={dataVencimentoRef} style={styles.input} value={dataVencimento} onChangeText={texto => setDataVencimento(formatarData(texto))} placeholder="DD/MM/AAAA" placeholderTextColor="#777777" keyboardType="numeric" maxLength={10} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
               </>}
 
             <TouchableOpacity style={[styles.button, salvandoProduto && styles.buttonDesabilitado]} onPress={salvarProduto} disabled={salvandoProduto}>
@@ -835,6 +955,7 @@ export default function EstoqueScreen() {
                   {modoCadastro === 'produto' ? 'CADASTRAR PRODUTO' : 'ADICIONAR UNIDADES'}
                 </Text>}
             </TouchableOpacity>
+            <AvisoDeEspera ativo={salvandoProduto} />
           </>}
 
         {aba === 'produtos' && <>
@@ -907,7 +1028,8 @@ export default function EstoqueScreen() {
             {buscaAberta && <View style={styles.buscaArea}>
                 <Ionicons name="search" size={19} color="#777777" />
 
-                <TextInput style={styles.buscaInput} value={buscaProduto} onChangeText={setBuscaProduto} placeholder="Buscar produto" placeholderTextColor="#777777" autoFocus returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
+                <TextInput
+                  caretHidden={false} style={styles.buscaInput} value={buscaProduto} onChangeText={setBuscaProduto} placeholder="Buscar produto" placeholderTextColor="#777777" autoFocus returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
 
                 {buscaProduto.length > 0 && <TouchableOpacity onPress={() => setBuscaProduto('')}>
                     <Ionicons name="close-circle" size={21} color="#777777" />
@@ -934,112 +1056,109 @@ export default function EstoqueScreen() {
                     </View>;
         })}
           </>}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
-      <Modal visible={modalRetiradaAberto} transparent animationType="fade" statusBarTranslucent onRequestClose={fecharModalRetirada}>
-        <View style={styles.modalTela}>
+      <Modal visible={modalRetiradaAberto} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={fecharModalRetirada}>
+        <View style={styles.modalRetiradaViewport} onLayout={medirModalRetirada}>
           <Pressable style={styles.modalFundo} onPress={fecharModalRetirada} />
+          <Animated.View style={[styles.modalRetiradaTeclado, estiloTecladoRetirada]} pointerEvents="box-none">
+            <View
+              style={styles.modalRetiradaConteudo}
+              onLayout={ajustarEspacoRetirada}
+              pointerEvents="box-none"
+            >
+              <Animated.View style={[styles.modalCard, styles.modalRetiradaCard, estiloCardRetirada]} onLayout={medirCardRetirada}>
+                <View style={[styles.modalCabecalho, styles.modalRetiradaCabecalho]}>
+                  <Text style={styles.retiradaTitulo}>Retirar unidades</Text>
+                  <TouchableOpacity style={styles.retiradaFechar} hitSlop={7} onPress={fecharModalRetirada} disabled={retirandoUnidades} accessibilityLabel="Fechar retirada">
+                    <Ionicons name="close" size={22} color="#AAAAAA" />
+                  </TouchableOpacity>
+                </View>
 
-          <View style={styles.modalCard}>
-            <View style={styles.modalCabecalho}>
-              <Text style={styles.modalTitulo}>
-                Retirar unidades
-              </Text>
-
-              <TouchableOpacity style={styles.modalFechar} onPress={fecharModalRetirada} disabled={retirandoUnidades}>
-                <Ionicons name="close" size={24} color="#AAAAAA" />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.modalPergunta}>
-              Produto
-            </Text>
-
-            <View style={[styles.produtoDestaqueModal, styles.produtoDestaqueRetirada]}>
-              <View style={styles.modalProdutoSelecionadoConteudo}>
-                <View style={styles.produtoSelecionadoInfo}>
-                  <Text style={styles.modalProdutoNome} numberOfLines={2}>
-                    {produtoParaRetirar?.nome}
-                  </Text>
-
-                  <Text style={styles.modalEstoqueDisponivel}>
+                <View style={styles.retiradaResumo}>
+                  <Text style={styles.retiradaNome} numberOfLines={1}>{produtoParaRetirar?.nome}</Text>
+                  <Text style={styles.retiradaSaldo}>
                     {produtoParaRetirar ? quantidadeDisponivel(produtoParaRetirar) : 0}{' '}
                     {produtoParaRetirar && quantidadeDisponivel(produtoParaRetirar) === 1 ? 'unidade' : 'unidades'}
                   </Text>
                 </View>
-              </View>
+
+                <Text style={styles.retiradaRotulo}>Escolher Compra</Text>
+                <View style={styles.retiradaCompras}>
+                  {comprasDaPaginaRetirada.map(compra => {
+                    const selecionada = compraRetiradaSelecionadaId === compra.id;
+                    const saldo = quantidadeDaCompraDisponivel(compra);
+                    return (
+                      <TouchableOpacity
+                        key={compra.id}
+                        style={[styles.retiradaCompra, selecionada && styles.compraSelecaoAtivaRetirada]}
+                        onPress={() => { setCompraRetiradaSelecionadaId(compra.id); setQuantidadeRetirada(''); }}
+                        disabled={retirandoUnidades}
+                        activeOpacity={0.8}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selecionada, disabled: retirandoUnidades }}
+                        accessibilityLabel={`Compra: ${compra.dataCompra}, vence: ${compra.dataVencimento ?? 'sem vencimento'}, ${saldo} unidades`}
+                      >
+                        <View style={[styles.retiradaRadio, selecionada && styles.radioAtivoRetirada]}>
+                          {selecionada && <View style={styles.radioCentroRetirada} />}
+                        </View>
+                        <View style={styles.compraSelecaoInfo}>
+                          <Text style={styles.retiradaCompraTexto}>
+                            {compra.dataCompra} · {saldo} {saldo === 1 ? 'unidade' : 'unidades'}
+                          </Text>
+                          <Text style={[styles.retiradaVencimento, estiloVencimentoTexto(compra)]}>
+                            Vence: {compra.dataVencimento ?? 'Sem vencimento'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {paginasRetirada > 1 && (
+                  <View style={styles.retiradaPaginacao}>
+                    <TouchableOpacity style={styles.retiradaPaginaBotao} onPress={() => trocarPaginaRetirada(paginaVisivelRetirada - 1)} disabled={retirandoUnidades || paginaVisivelRetirada === 0} accessibilityLabel="Compras anteriores">
+                      <Text style={[styles.retiradaPaginaTexto, paginaVisivelRetirada === 0 && styles.buttonDesabilitado]}>ANTERIOR</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.retiradaPaginaContagem}>{paginaVisivelRetirada + 1} / {paginasRetirada}</Text>
+                    <TouchableOpacity style={styles.retiradaPaginaBotao} onPress={() => trocarPaginaRetirada(paginaVisivelRetirada + 1)} disabled={retirandoUnidades || paginaVisivelRetirada === paginasRetirada - 1} accessibilityLabel="Próximas compras">
+                      <Text style={[styles.retiradaPaginaTexto, paginaVisivelRetirada === paginasRetirada - 1 && styles.buttonDesabilitado]}>PRÓXIMA</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <Text style={[styles.retiradaRotulo, styles.retiradaQuantidadeRotulo]}>Quantas unidades deseja retirar?</Text>
+                <TextInput
+                  caretHidden={false}
+                  style={[styles.modalQuantidadeInput, styles.retiradaQuantidade]}
+                  value={quantidadeRetirada}
+                  onChangeText={texto => setQuantidadeRetirada(texto.replace(/\D/g, ''))}
+                  placeholder="Ex.: 2"
+                  placeholderTextColor="#777777"
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  editable={!retirandoUnidades}
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                />
+                <View style={styles.modalBotoes}>
+                  <TouchableOpacity style={[styles.cancelarButton, styles.retiradaAcao]} onPress={fecharModalRetirada} disabled={retirandoUnidades}>
+                    <Text style={styles.cancelarButtonTexto}>CANCELAR</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.confirmarRetiradaButton, styles.retiradaAcao, (retirandoUnidades || compraRetiradaSelecionadaId === null) && styles.buttonDesabilitado]} onPress={confirmarRetirada} disabled={retirandoUnidades || compraRetiradaSelecionadaId === null}>
+                    {retirandoUnidades ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="remove-circle-outline" size={18} color="#111111" />}
+                    <Text style={styles.confirmarRetiradaButtonTexto}>{retirandoUnidades ? 'RETIRANDO...' : 'RETIRAR'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <AvisoDeEspera ativo={retirandoUnidades} />
+              </Animated.View>
             </View>
-
-            {produtoParaRetirar && <View style={styles.comprasRetiradaArea}>
-                <Text style={styles.comprasSelecaoTitulo}>
-                  Escolher Compra
-                </Text>
-
-                <ScrollView style={styles.comprasRetiradaLista} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                  {comprasDisponiveisParaRetirada(produtoParaRetirar).map(compra => {
-                const compraSelecionada = compraRetiradaSelecionadaId === compra.id;
-                const saldo = quantidadeDaCompraDisponivel(compra);
-
-                return <TouchableOpacity key={compra.id} style={[styles.compraSelecao, compraSelecionada && styles.compraSelecaoAtivaRetirada]} onPress={() => {
-                  setCompraRetiradaSelecionadaId(compra.id);
-                  setQuantidadeRetirada('');
-                }} disabled={retirandoUnidades} activeOpacity={0.8}>
-                          <View style={[styles.radio, compraSelecionada && styles.radioAtivoRetirada]}>
-                            {compraSelecionada && <View style={styles.radioCentroRetirada} />}
-                          </View>
-
-                          <View style={styles.compraSelecaoInfo}>
-                            <Text style={styles.compraSelecaoData}>
-                              Compra: {compra.dataCompra}
-                            </Text>
-
-                            <Text style={[styles.compraSelecaoVencimento, estiloVencimentoTexto(compra)]}>
-                              Vence: {compra.dataVencimento ?? 'Sem vencimento'}
-                            </Text>
-
-                            <Text style={styles.compraSelecaoSaldo}>
-                              {saldo} {saldo === 1 ? 'unidade' : 'unidades'}
-                            </Text>
-                          </View>
-
-                          <View style={[styles.statusCompraModal, estiloStatusCompra(compra)]}>
-                            <Text style={styles.statusCompraModalTexto}>
-                              {textoStatusCompra(compra)}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>;
-              })}
-                </ScrollView>
-              </View>}
-
-            <Text style={styles.modalPergunta}>
-              Quantas unidades deseja retirar?
-            </Text>
-
-            <TextInput style={styles.modalQuantidadeInput} value={quantidadeRetirada} onChangeText={texto => setQuantidadeRetirada(texto.replace(/\D/g, ''))} placeholder="Ex.: 2" placeholderTextColor="#777777" keyboardType="numeric" returnKeyType="done" onSubmitEditing={confirmarRetirada} />
-
-            <View style={styles.modalBotoes}>
-              <TouchableOpacity style={styles.cancelarButton} onPress={fecharModalRetirada} disabled={retirandoUnidades}>
-                <Text style={styles.cancelarButtonTexto}>
-                  CANCELAR
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.confirmarRetiradaButton, (retirandoUnidades || compraRetiradaSelecionadaId === null) && styles.buttonDesabilitado]} onPress={confirmarRetirada} disabled={retirandoUnidades || compraRetiradaSelecionadaId === null}>
-                {retirandoUnidades ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="remove-circle-outline" size={18} color="#111111" />}
-
-                <Text style={styles.confirmarRetiradaButtonTexto}>
-                  {retirandoUnidades ? 'RETIRANDO...' : 'RETIRAR'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
       <Modal visible={modalExcluirAberto} transparent animationType="fade" statusBarTranslucent onRequestClose={fecharModalExcluir}>
-        <View style={styles.modalTela}>
-          <Pressable style={styles.modalFundo} onPress={fecharModalExcluir} />
+        <View style={[styles.modalTela, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
+          <Pressable style={styles.modalFundo} onPress={fecharModalExcluir} disabled={excluindo} />
 
           <View style={styles.modalCard}>
             <View style={styles.modalCabecalho}>
@@ -1047,7 +1166,7 @@ export default function EstoqueScreen() {
                 Excluir do estoque
               </Text>
 
-              <TouchableOpacity style={styles.modalFechar} onPress={fecharModalExcluir}>
+              <TouchableOpacity style={styles.modalFechar} onPress={fecharModalExcluir} disabled={excluindo}>
                 <Ionicons name="close" size={24} color="#AAAAAA" />
               </TouchableOpacity>
             </View>
@@ -1094,7 +1213,7 @@ export default function EstoqueScreen() {
                 </Text>
 
                 <ScrollView style={styles.comprasSelecaoLista} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                  {comprasVisiveis(produtoParaExcluir).map(compra => <TouchableOpacity key={compra.id} style={[styles.compraSelecao, compraSelecionadaId === compra.id && styles.compraSelecaoAtiva]} onPress={() => setCompraSelecionadaId(compra.id)} activeOpacity={0.8}>
+                  {comprasVisiveis(produtoParaExcluir).map(compra => <TouchableOpacity key={compra.id} style={[styles.compraSelecao, compraSelecionadaId === compra.id && styles.compraSelecaoAtiva]} disabled={excluindo} onPress={() => setCompraSelecionadaId(compra.id)} activeOpacity={0.8}>
                         <View style={[styles.radio, compraSelecionadaId === compra.id && styles.radioAtivo]}>
                           {compraSelecionadaId === compra.id && <View style={styles.radioCentro} />}
                         </View>
@@ -1129,17 +1248,17 @@ export default function EstoqueScreen() {
               </View>}
 
             <View style={styles.modalBotoes}>
-              <TouchableOpacity style={styles.cancelarButton} onPress={fecharModalExcluir}>
+              <TouchableOpacity style={styles.cancelarButton} onPress={fecharModalExcluir} disabled={excluindo}>
                 <Text style={styles.cancelarButtonTexto}>
                   CANCELAR
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.confirmarExcluirButton, !podeConfirmarExclusao && styles.confirmarExcluirButtonDesabilitado]} onPress={confirmarExclusao} disabled={!podeConfirmarExclusao}>
+              <TouchableOpacity style={[styles.confirmarExcluirButton, (!podeConfirmarExclusao || excluindo) && styles.confirmarExcluirButtonDesabilitado]} onPress={confirmarExclusao} disabled={!podeConfirmarExclusao || excluindo}>
                 <Ionicons name="trash-outline" size={17} color="#FFFFFF" />
 
                 <Text style={styles.confirmarExcluirButtonTexto}>
-                  EXCLUIR
+                  {excluindo ? 'EXCLUINDO...' : 'EXCLUIR'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1148,7 +1267,7 @@ export default function EstoqueScreen() {
       </Modal>
 
       <Modal visible={fotoAmpliada !== null} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setFotoAmpliada(null)}>
-        <View style={styles.fotoAmpliadaTela}>
+        <View style={[styles.fotoAmpliadaTela, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 18 }]}>
           <Pressable style={styles.fotoAmpliadaFundo} onPress={() => setFotoAmpliada(null)} />
 
           {fotoAmpliada && <View style={styles.fotoAmpliadaCard}>
@@ -1162,13 +1281,13 @@ export default function EstoqueScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Image source={{
+              <CachedImage cachePolicy="memory-disk" contentFit="contain" source={{
             uri: fotoAmpliada.uri
-          }} style={styles.fotoAmpliadaImagem} resizeMode="contain" />
+          }} style={styles.fotoAmpliadaImagem} />
             </View>}
         </View>
       </Modal>
-    </KeyboardAvoidingView>;
+    </View>;
 }
 
 const styles = StyleSheet.create({
@@ -1182,7 +1301,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 50,
+    paddingTop: 16,
     paddingBottom: 100
   },
   abas: {
@@ -1879,6 +1998,29 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#FFFFFF'
   },
+  modalRetiradaViewport: { flex: 1 },
+  modalRetiradaTeclado: { flex: 1 },
+  modalRetiradaConteudo: { flex: 1, minHeight: 0, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 20 },
+  modalRetiradaCard: { maxHeight: undefined, flexShrink: 0, padding: 14 },
+  modalRetiradaCabecalho: { flexShrink: 0, marginBottom: 8 },
+  retiradaTitulo: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', flex: 1 },
+  retiradaFechar: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: '#292929', borderRadius: 15 },
+  retiradaResumo: { flexDirection: 'row', alignItems: 'center', gap: 8, borderLeftWidth: 3, borderLeftColor: '#FFB74D', backgroundColor: '#161616', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 },
+  retiradaNome: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', flexShrink: 1 },
+  retiradaSaldo: { color: '#31C76A', fontSize: 13, fontWeight: '800', flexShrink: 0 },
+  retiradaRotulo: { color: '#FFFFFF', fontSize: 13, lineHeight: 18, fontWeight: '800', marginBottom: 6 },
+  retiradaCompras: { gap: 6, flexShrink: 0 },
+  retiradaCompra: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#353535', borderRadius: 9, backgroundColor: '#161616' },
+  retiradaRadio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#666666', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  retiradaCompraTexto: { color: '#FFFFFF', fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  retiradaVencimento: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+  retiradaPaginacao: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  retiradaPaginaBotao: { minHeight: 30, paddingHorizontal: 4, justifyContent: 'center' },
+  retiradaPaginaTexto: { color: '#FFB74D', fontSize: 11, fontWeight: '800' },
+  retiradaPaginaContagem: { color: '#BBBBBB', fontSize: 12, fontWeight: '700' },
+  retiradaQuantidadeRotulo: { marginTop: 10 },
+  retiradaQuantidade: { height: 44, fontSize: 16, flexShrink: 0 },
+  retiradaAcao: { height: 44, flexShrink: 0 },
   modalTela: {
     flex: 1,
     alignItems: 'center',
@@ -2017,6 +2159,7 @@ const styles = StyleSheet.create({
     maxHeight: 225
   },
   comprasSelecaoArea: {
+    flexShrink: 1,
     marginTop: 9,
     marginBottom: 14
   },

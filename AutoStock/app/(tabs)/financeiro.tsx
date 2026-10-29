@@ -1,3 +1,4 @@
+import { usePreferencia } from '@/hooks/use-preferencia';
 import { quantidadeComprada } from '@/utils/estoque';
 
 import { Ionicons } from '@expo/vector-icons';
@@ -135,9 +136,10 @@ function formatarValor(valor: number) {
 }
 
 export default function FinanceiroScreen() {
-  const [periodo, setPeriodo] = useState<Periodo>('hoje');
+  const { usuarioLogado } = useAppData();
+  const [periodo, setPeriodo] = usePreferencia<Periodo>(`autocar.${usuarioLogado?.id}.financeiro.periodo`, 'hoje', ['hoje', 'mes']);
   const [filtroMovimentacao, setFiltroMovimentacao] =
-    useState<FiltroMovimentacao>('todos');
+    usePreferencia<FiltroMovimentacao>(`autocar.${usuarioLogado?.id}.financeiro.tipo`, 'todos', ['todos', 'receitas', 'despesas']);
 
   const agora = new Date();
   const [mesReferencia, setMesReferencia] = useState(
@@ -509,7 +511,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 50,
+    paddingTop: 16,
     paddingBottom: 90,
   },
   filtros: {

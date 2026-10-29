@@ -1,3 +1,5 @@
+import { EstadoOffline } from '@/components/estado-offline';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
@@ -10,6 +12,7 @@ import {
   Animated,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -23,6 +26,7 @@ import {
 const LARGURA_MENU = 285;
 
 export function AppHeader() {
+  const insets = useSafeAreaInsets();
   const [
     menuAberto,
     setMenuAberto,
@@ -30,7 +34,14 @@ export function AppHeader() {
 
   const {
     sairUsuario,
+    pendencias,
+    modoLocal,
+    sincronizando,
+    avisoLocal,
   } = useAppData();
+
+  const avisoMenu = pendencias.length > 0 ? (pendencias.length > 99 ? '99+' : String(pendencias.length))
+    : avisoLocal ? '!' : sincronizando ? '…' : modoLocal ? '•' : null;
 
   const posicaoMenu =
     useRef(
@@ -119,12 +130,15 @@ export function AppHeader() {
             abrirMenu
           }
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Abrir menu. ${pendencias.length} atendimento(s) pendente(s).${modoLocal ? ' Dados locais.' : ''}`}
         >
           <Ionicons
             name="menu"
             size={30}
             color="#FFFFFF"
           />
+          {avisoMenu !== null && <View style={styles.avisoMenu}><Text style={styles.avisoMenuTexto}>{avisoMenu}</Text></View>}
         </TouchableOpacity>
 
         <View
@@ -183,6 +197,7 @@ export function AppHeader() {
           <Animated.View
             style={[
               styles.menuLateral,
+              { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 },
 
               {
                 transform: [
@@ -220,6 +235,7 @@ export function AppHeader() {
               }
             />
 
+            <ScrollView style={styles.menuRolagem} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <TouchableOpacity
               style={
                 styles.menuItem
@@ -245,6 +261,8 @@ export function AppHeader() {
 
             
 
+            <EstadoOffline key={menuAberto ? 'aberto' : 'fechado'} />
+
             <TouchableOpacity
               style={
                 styles.menuItem
@@ -267,6 +285,8 @@ export function AppHeader() {
                 Sobre
               </Text>
             </TouchableOpacity>
+
+            </ScrollView>
 
             <TouchableOpacity
               style={[
@@ -300,6 +320,9 @@ export function AppHeader() {
 
 const styles =
   StyleSheet.create({
+    menuRolagem: { flex: 1 },
+    avisoMenu: { position: 'absolute', top: 3, right: 6, minWidth: 19, height: 19, paddingHorizontal: 4, borderRadius: 10, backgroundColor: '#F5BE61', alignItems: 'center', justifyContent: 'center' },
+    avisoMenuTexto: { color: '#171717', fontSize: 11, fontWeight: 'bold' },
     header: {
       height: 58,
 
@@ -392,7 +415,7 @@ const styles =
       backgroundColor:
         '#000000',
 
-      paddingTop: 60,
+      paddingTop: 20,
 
       paddingHorizontal: 20,
 

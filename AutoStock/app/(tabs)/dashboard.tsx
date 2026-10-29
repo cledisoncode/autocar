@@ -500,7 +500,7 @@ const styles =
 
       paddingHorizontal: 20,
 
-      paddingTop: 50,
+      paddingTop: 16,
 
       paddingBottom: 25,
     },

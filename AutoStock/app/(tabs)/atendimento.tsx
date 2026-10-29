@@ -1,14 +1,15 @@
+import { AvisoDeEspera } from '@/components/aviso-de-espera';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+
 import {
   useRef,
   useState,
 } from 'react';
 
 import {
+  ActivityIndicator,
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +36,8 @@ type FiltroHistorico =
   | 'todos';
 
 export default function AtendimentoScreen() {
+  const [salvandoAtendimento, setSalvandoAtendimento] = useState(false);
+  const salvandoAtendimentoRef = useRef(false);
   const [
     aba,
     setAba,
@@ -127,11 +130,6 @@ export default function AtendimentoScreen() {
 
   const valorRef =
     useRef<TextInput>(
-      null
-    );
-
-  const scrollRef =
-    useRef<ScrollView>(
       null
     );
 
@@ -552,14 +550,6 @@ export default function AtendimentoScreen() {
         )
     );
 
-  function rolarParaBaixo() {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({
-        animated: true,
-      });
-    }, 180);
-  }
-
   function limparFormulario() {
     setNome('');
 
@@ -577,6 +567,7 @@ export default function AtendimentoScreen() {
   }
 
   async function salvarAtendimento() {
+    if (salvandoAtendimentoRef.current) return;
     Keyboard.dismiss();
 
     const valorNumero =
@@ -658,8 +649,11 @@ export default function AtendimentoScreen() {
         valorNumero,
     };
 
+    let resultado: 'salvo' | 'pendente' = 'salvo';
+    salvandoAtendimentoRef.current = true;
+    setSalvandoAtendimento(true);
     try {
-      await adicionarAtendimento(
+      resultado = await adicionarAtendimento(
         novoAtendimento
       );
     } catch (erro) {
@@ -671,6 +665,9 @@ export default function AtendimentoScreen() {
       );
 
       return;
+    } finally {
+      salvandoAtendimentoRef.current = false;
+      setSalvandoAtendimento(false);
     }
 
     limparFormulario();
@@ -687,7 +684,7 @@ export default function AtendimentoScreen() {
 
     Alert.alert(
       'AUTOCAR',
-      'Atendimento adicionado.'
+      resultado === 'pendente' ? 'Atendimento salvo no celular e aguardando envio.' : 'Atendimento adicionado.'
     );
   }
 
@@ -722,19 +719,8 @@ export default function AtendimentoScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={
-        styles.keyboardContainer
-      }
-      behavior={
-        Platform.OS ===
-        'ios'
-          ? 'padding'
-          : 'height'
-      }
-    >
-      <ScrollView
-        ref={scrollRef}
+    <View style={styles.keyboardContainer}>
+      <KeyboardAwareScrollView pointerEvents={salvandoAtendimento ? 'none' : 'auto'} bottomOffset={28} extraKeyboardSpace={24}
         style={
           styles.container
         }
@@ -825,6 +811,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 nomeRef
               }
@@ -856,6 +844,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 carroRef
               }
@@ -887,6 +877,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 placaRef
               }
@@ -931,6 +923,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 servicoRef
               }
@@ -961,6 +955,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 dataRef
               }
@@ -985,9 +981,6 @@ export default function AtendimentoScreen() {
               maxLength={10}
               returnKeyType="next"
               submitBehavior="submit"
-              onFocus={
-                rolarParaBaixo
-              }
               onSubmitEditing={() => {
                 horarioRef.current?.focus();
               }}
@@ -1002,6 +995,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 horarioRef
               }
@@ -1026,9 +1021,6 @@ export default function AtendimentoScreen() {
               maxLength={5}
               returnKeyType="next"
               submitBehavior="submit"
-              onFocus={
-                rolarParaBaixo
-              }
               onSubmitEditing={() => {
                 valorRef.current?.focus();
               }}
@@ -1043,6 +1035,8 @@ export default function AtendimentoScreen() {
             </Text>
 
             <TextInput
+              caretHidden={false}
+              editable={!salvandoAtendimento}
               ref={
                 valorRef
               }
@@ -1058,8 +1052,6 @@ export default function AtendimentoScreen() {
                     'R$ '
                   );
                 }
-
-                rolarParaBaixo();
               }}
               onChangeText={(
                 texto
@@ -1074,28 +1066,30 @@ export default function AtendimentoScreen() {
               placeholderTextColor="#777777"
               keyboardType="decimal-pad"
               returnKeyType="done"
-              onSubmitEditing={
-                salvarAtendimento
-              }
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
 
             <TouchableOpacity
               style={
                 styles.button
               }
+              disabled={salvandoAtendimento}
+              accessibilityState={{ busy: salvandoAtendimento, disabled: salvandoAtendimento }}
               onPress={
                 salvarAtendimento
               }
               activeOpacity={0.8}
             >
+              {salvandoAtendimento && <ActivityIndicator color="#FFFFFF" style={{ marginBottom: 4 }} />}
               <Text
                 style={
                   styles.buttonText
                 }
               >
-                SALVAR ATENDIMENTO
+                {salvandoAtendimento ? 'SALVANDO...' : 'SALVAR ATENDIMENTO'}
               </Text>
             </TouchableOpacity>
+          <AvisoDeEspera ativo={salvandoAtendimento} />
           </>
         )}
 
@@ -1205,6 +1199,8 @@ export default function AtendimentoScreen() {
                 }
               >
                 <TextInput
+                  caretHidden={false}
+              editable={!salvandoAtendimento}
                   style={
                     styles.pesquisaInput
                   }
@@ -1370,8 +1366,8 @@ export default function AtendimentoScreen() {
             )}
           </>
         )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
+    </View>
   );
 }
 
@@ -1394,7 +1390,7 @@ const styles =
     content: {
       paddingHorizontal: 20,
 
-      paddingTop: 50,
+      paddingTop: 16,
 
       paddingBottom: 80,
     },

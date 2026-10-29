@@ -1,9 +1,15 @@
+import { AvisoDeEspera } from '@/components/aviso-de-espera';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppData } from '@/contexts/app-data-context';
 import {
   Ionicons,
 } from '@expo/vector-icons';
 
 import {
   Tabs,
+  Redirect,
+  router,
 } from 'expo-router';
 
 import {
@@ -11,7 +17,31 @@ import {
 } from '@/components/haptic-tab';
 
 export default function TabLayout() {
+  const { usuarioLogado, estadoDados, erroCarregamento, recarregarDados, sairUsuario } = useAppData();
+  if (!usuarioLogado) return <Redirect href="/" />;
+  if (estadoDados !== 'pronto') {
+    const carregando = estadoDados !== 'erro';
+    return (
+      <SafeAreaView style={styles.espera}>
+        <View style={styles.aviso} accessibilityLiveRegion="polite">
+          {carregando && <ActivityIndicator size="large" color="#E53935" />}
+          <Text style={styles.titulo}>{carregando ? 'Carregando seus dados...' : 'Não foi possível atualizar os dados'}</Text>
+          <Text style={styles.mensagem}>{carregando
+            ? 'Aguarde enquanto buscamos o estoque e os atendimentos.'
+            : erroCarregamento}</Text>
+          <AvisoDeEspera ativo={carregando} />
+          {!carregando && <TouchableOpacity style={styles.botao} onPress={() => { void recarregarDados().catch(() => {}); }}>
+            <Text style={styles.botaoTexto}>TENTAR NOVAMENTE</Text>
+          </TouchableOpacity>}
+          <TouchableOpacity style={styles.sair} onPress={() => { sairUsuario(); router.replace('/'); }}>
+            <Text style={styles.mensagem}>Voltar ao login</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
   return (
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -145,5 +175,17 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000000' },
+  espera: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', padding: 28 },
+  aviso: { alignItems: 'center', gap: 18 },
+  titulo: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  mensagem: { color: '#BBBBBB', fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  botao: { backgroundColor: '#E53935', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 24 },
+  botaoTexto: { color: '#FFFFFF', fontWeight: '800' },
+  sair: { padding: 14 },
+});
