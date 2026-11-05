@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const sequelize = require('../config/db');
 const { Usuario, CodigoRecuperacaoSenha } = require('../models');
 
 const TEMPO_EXPIRACAO_CODIGO_MS = 10 * 60 * 1000;
@@ -106,6 +107,12 @@ function emailValido(email) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function normalizarEmail(email) {
+    if (typeof email !== 'string') return null;
+    const normalizado = email.trim().toLowerCase();
+    return normalizado || null;
+}
+
 function criarToken(usuario) {
     if (!process.env.JWT_SECRET) {
         throw new Error('JWT_SECRET não configurado.');
@@ -124,11 +131,11 @@ function criarToken(usuario) {
 
 async function cadastrar(req, res) {
     try {
-        let { nome, sobrenome, email, senha } = req.body;
+        let { nome, sobrenome, email, senha } = req.body || {};
 
         nome = nome?.trim();
         sobrenome = sobrenome?.trim();
-        email = email?.trim().toLowerCase();
+        email = normalizarEmail(email);
 
         if (!nome || !sobrenome || !email || !senha) {
             return res.status(400).json({
@@ -189,9 +196,9 @@ async function cadastrar(req, res) {
 
 async function login(req, res) {
     try {
-        let { email, senha } = req.body;
+        let { email, senha } = req.body || {};
 
-        email = email?.trim().toLowerCase();
+        email = normalizarEmail(email);
 
         if (!email || !senha) {
             return res.status(400).json({
@@ -227,7 +234,7 @@ async function login(req, res) {
 }
 
 async function verificarEmail(req, res) {
-    const email = req.body?.email?.trim().toLowerCase();
+    const email = normalizarEmail(req.body?.email);
 
     if (!email || !emailValido(email)) {
         return res.status(400).json({ erro: 'E-mail inválido.' });
@@ -242,7 +249,7 @@ async function verificarEmail(req, res) {
 }
 
 async function solicitarRecuperacaoSenha(req, res) {
-    const email = req.body?.email?.trim().toLowerCase();
+    const email = normalizarEmail(req.body?.email);
 
     if (!email || !emailValido(email)) {
         return res.status(400).json({ erro: 'Informe um e-mail válido.' });
@@ -259,72 +266,76 @@ async function solicitarRecuperacaoSenha(req, res) {
     }
 
     try {
-        const usuario = await Usuario.findOne({ where: { email } });
-
-        // A resposta é igual para e-mails cadastrados e não cadastrados.
-        if (!usuario) {
-            return res.status(202).json({
-                mensagem: 'Se o e-mail estiver cadastrado, enviaremos um código de recuperação.'
+        await sequelize.transaction(async (transaction) => {
+            // Lock estável por usuário serializa pedidos mesmo quando ainda não existe código.
+            const usuario = await Usuario.findOne({
+                where: { email },
+                transaction,
+                lock: transaction.LOCK.UPDATE
             });
-        }
 
-        const codigoExistente = await CodigoRecuperacaoSenha.findOne({
-            where: { id_usuario: usuario.id_usuario }
+            // A resposta é igual para e-mails cadastrados e não cadastrados.
+            if (!usuario) return;
+
+            const codigoExistente = await CodigoRecuperacaoSenha.findOne({
+                where: { id_usuario: usuario.id_usuario },
+                transaction,
+                lock: transaction.LOCK.UPDATE
+            });
+
+            if (codigoExistente && Date.now() - new Date(codigoExistente.criado_em).getTime() < INTERVALO_REENVIO_CODIGO_MS) {
+                return;
+            }
+
+            const codigo = String(crypto.randomInt(10_000_000, 100_000_000));
+            const criadoEm = new Date();
+            const expiraEm = new Date(criadoEm.getTime() + TEMPO_EXPIRACAO_CODIGO_MS);
+            const codigoHash = hashCodigoRecuperacao(usuario.id_usuario, codigo);
+
+            if (codigoExistente) {
+                await codigoExistente.update({
+                    codigo_hash: codigoHash,
+                    tentativas: 0,
+                    criado_em: criadoEm,
+                    expira_em: expiraEm
+                }, { transaction });
+            } else {
+                await CodigoRecuperacaoSenha.create({
+                    id_usuario: usuario.id_usuario,
+                    codigo_hash: codigoHash,
+                    tentativas: 0,
+                    criado_em: criadoEm,
+                    expira_em: expiraEm
+                }, { transaction });
+            }
+
+            try {
+                await enviarEmailRecuperacao({
+                    para: usuario.email,
+                    assunto: 'Código para recuperar sua senha AUTOCAR',
+                    texto: `Seu código de recuperação é ${codigo}. Ele expira em 10 minutos. Se você não solicitou a troca, ignore esta mensagem.`
+                });
+            } catch (errorEmail) {
+                errorEmail.recuperacaoEmail = true;
+                throw errorEmail;
+            }
         });
-
-        if (codigoExistente && Date.now() - new Date(codigoExistente.criado_em).getTime() < INTERVALO_REENVIO_CODIGO_MS) {
-            return res.status(202).json({
-                mensagem: 'Se o e-mail estiver cadastrado, enviaremos um código de recuperação.'
-            });
-        }
-
-        const codigo = String(crypto.randomInt(10_000_000, 100_000_000));
-        const criadoEm = new Date();
-        const expiraEm = new Date(criadoEm.getTime() + TEMPO_EXPIRACAO_CODIGO_MS);
-        const codigoHash = hashCodigoRecuperacao(usuario.id_usuario, codigo);
-
-        if (codigoExistente) {
-            await codigoExistente.update({
-                codigo_hash: codigoHash,
-                tentativas: 0,
-                criado_em: criadoEm,
-                expira_em: expiraEm
-            });
-        } else {
-            await CodigoRecuperacaoSenha.create({
-                id_usuario: usuario.id_usuario,
-                codigo_hash: codigoHash,
-                tentativas: 0,
-                criado_em: criadoEm,
-                expira_em: expiraEm
-            });
-        }
-
-        try {
-            await enviarEmailRecuperacao({
-                para: usuario.email,
-                assunto: 'Código para recuperar sua senha AUTOCAR',
-                texto: `Seu código de recuperação é ${codigo}. Ele expira em 10 minutos. Se você não solicitou a troca, ignore esta mensagem.`
-            });
-        } catch (errorEmail) {
-            await CodigoRecuperacaoSenha.destroy({
-                where: { id_usuario: usuario.id_usuario }
-            });
-            console.error('Falha ao enviar código de recuperação por e-mail:', errorEmail);
-            return res.status(502).json({ erro: 'Não foi possível enviar o e-mail de recuperação.' });
-        }
 
         return res.status(202).json({
             mensagem: 'Se o e-mail estiver cadastrado, enviaremos um código de recuperação.'
         });
     } catch (error) {
+        if (error?.recuperacaoEmail) {
+            console.error('Falha ao enviar código de recuperação por e-mail:', error);
+            return res.status(502).json({ erro: 'Não foi possível enviar o e-mail de recuperação.' });
+        }
         console.error('Erro ao solicitar recuperação de senha:', error);
         return res.status(500).json({ erro: 'Não foi possível iniciar a recuperação da senha.' });
     }
 }
 
 async function redefinirSenha(req, res) {
-    const email = req.body?.email?.trim().toLowerCase();
+    const email = normalizarEmail(req.body?.email);
     const codigo = String(req.body?.codigo || '').trim();
     const novaSenha = req.body?.novaSenha;
 
@@ -341,42 +352,53 @@ async function redefinirSenha(req, res) {
     }
 
     try {
-        const usuario = await Usuario.findOne({ where: { email } });
-        const registroCodigo = usuario
-            ? await CodigoRecuperacaoSenha.findOne({ where: { id_usuario: usuario.id_usuario } })
-            : null;
+        const resultado = await sequelize.transaction(async (transaction) => {
+            // O lock do usuário serializa redefinições e tentativas para a mesma conta.
+            const usuario = await Usuario.findOne({
+                where: { email },
+                transaction,
+                lock: transaction.LOCK.UPDATE
+            });
+            if (!usuario) return 'invalido';
 
-        const codigoInvalido = () => res.status(400).json({
-            erro: 'Código inválido ou expirado. Solicite um novo código e tente novamente.'
+            const registroCodigo = await CodigoRecuperacaoSenha.findOne({
+                where: { id_usuario: usuario.id_usuario },
+                transaction,
+                lock: transaction.LOCK.UPDATE
+            });
+            if (!registroCodigo) return 'invalido';
+
+            if (new Date(registroCodigo.expira_em).getTime() <= Date.now() || registroCodigo.tentativas >= LIMITE_TENTATIVAS_CODIGO) {
+                await registroCodigo.destroy({ transaction });
+                return 'invalido';
+            }
+
+            const hashInformado = Buffer.from(hashCodigoRecuperacao(usuario.id_usuario, codigo), 'hex');
+            const hashArmazenado = Buffer.from(registroCodigo.codigo_hash, 'hex');
+            const codigoConfere = hashInformado.length === hashArmazenado.length &&
+                crypto.timingSafeEqual(hashInformado, hashArmazenado);
+
+            if (!codigoConfere) {
+                const tentativas = registroCodigo.tentativas + 1;
+                if (tentativas >= LIMITE_TENTATIVAS_CODIGO) {
+                    await registroCodigo.destroy({ transaction });
+                } else {
+                    await registroCodigo.update({ tentativas }, { transaction });
+                }
+                return 'invalido';
+            }
+
+            const senhaHash = await bcrypt.hash(novaSenha, 12);
+            await usuario.update({ senha: senhaHash }, { transaction });
+            await registroCodigo.destroy({ transaction });
+            return 'sucesso';
         });
 
-        if (!usuario || !registroCodigo) {
-            return codigoInvalido();
+        if (resultado !== 'sucesso') {
+            return res.status(400).json({
+                erro: 'Código inválido ou expirado. Solicite um novo código e tente novamente.'
+            });
         }
-
-        if (new Date(registroCodigo.expira_em).getTime() <= Date.now() || registroCodigo.tentativas >= LIMITE_TENTATIVAS_CODIGO) {
-            await registroCodigo.destroy();
-            return codigoInvalido();
-        }
-
-        const hashInformado = Buffer.from(hashCodigoRecuperacao(usuario.id_usuario, codigo), 'hex');
-        const hashArmazenado = Buffer.from(registroCodigo.codigo_hash, 'hex');
-        const codigoConfere = hashInformado.length === hashArmazenado.length &&
-            crypto.timingSafeEqual(hashInformado, hashArmazenado);
-
-        if (!codigoConfere) {
-            const tentativas = registroCodigo.tentativas + 1;
-            if (tentativas >= LIMITE_TENTATIVAS_CODIGO) {
-                await registroCodigo.destroy();
-            } else {
-                await registroCodigo.update({ tentativas });
-            }
-            return codigoInvalido();
-        }
-
-        usuario.senha = await bcrypt.hash(novaSenha, 12);
-        await usuario.save();
-        await registroCodigo.destroy();
 
         return res.status(200).json({ mensagem: 'Senha alterada com sucesso.' });
     } catch (error) {
