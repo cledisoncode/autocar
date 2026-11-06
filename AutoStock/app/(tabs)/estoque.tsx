@@ -172,22 +172,38 @@ export default function EstoqueScreen() {
   async function selecionarFoto() {
     Keyboard.dismiss();
 
-    const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    let uri: string | undefined;
+    try {
+      const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (!permissao.granted) {
-      Alert.alert('Permissão necessária', 'O AUTOCAR precisa de acesso às fotos.');
+      if (!permissao.granted) {
+        Alert.alert('Permissão necessária', 'O AUTOCAR precisa de acesso às fotos.');
+        return;
+      }
+
+      const resultado = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        shape: 'rectangle',
+        quality: 0.9
+      });
+
+      if (resultado.canceled) return;
+
+      uri = resultado.assets[0]?.uri;
+    } catch {
+      Alert.alert('Não foi possível selecionar a foto', 'Tente abrir a galeria novamente.');
       return;
     }
 
-    const resultado = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      shape: 'rectangle',
-      quality: 0.9
-    });
+    try {
+      if (!uri) throw new Error('A galeria não retornou uma foto.');
 
-    if (!resultado.canceled) {
-      setFoto(resultado.assets[0].uri);
+      // Confere se a imagem pode ser lida antes de substituir a seleção anterior.
+      await CachedImage.loadAsync(uri, { maxWidth: 128, maxHeight: 128 });
+      setFoto(uri);
+    } catch {
+      Alert.alert('Não foi possível carregar a foto', 'Escolha outra foto e tente novamente.');
     }
   }
 
@@ -1281,9 +1297,11 @@ export default function EstoqueScreen() {
                 </TouchableOpacity>
               </View>
 
-              <CachedImage cachePolicy="memory-disk" contentFit="contain" source={{
-            uri: fotoAmpliada.uri
-          }} style={styles.fotoAmpliadaImagem} />
+              <View style={styles.fotoAmpliadaArea}>
+                <CachedImage cachePolicy="memory-disk" contentFit="contain" source={{
+                  uri: fotoAmpliada.uri
+                }} style={styles.fotoAmpliadaImagem} />
+              </View>
             </View>}
         </View>
       </Modal>
@@ -1993,9 +2011,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  fotoAmpliadaImagem: {
+  fotoAmpliadaArea: {
     flex: 1,
+    minHeight: 0
+  },
+  fotoAmpliadaImagem: {
     width: '100%',
+    height: '100%',
     backgroundColor: '#FFFFFF'
   },
   modalRetiradaViewport: { flex: 1 },
